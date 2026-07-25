@@ -46,16 +46,19 @@ export class AppService {
       return { records: [], errors: ['No se recibió contenido para interpretar.'] };
     }
 
-    const delimiter = lines.some((line) => line.includes('\t')) ? '\t' : ',';
-    const header = lines[0].split(delimiter).map((value) => value.trim().toLowerCase());
-    const dataLines = lines.slice(1);
+    const firstLineTokens = this.tokenize(lines[0]);
+    const hasHeader = this.looksLikeHeader(firstLineTokens);
+    const dataLines = hasHeader ? lines.slice(1) : lines;
 
     const records = dataLines.map((line, index) => {
-      const values = line.split(delimiter).map((value) => value.trim());
-      const name = this.readField(values, header, ['nombre', 'name', 'producto']);
-      const code = this.readField(values, header, ['codigo', 'code', 'sku']);
-      const priceValue = this.readField(values, header, ['precio', 'price', 'valor']);
-      const discountValue = this.readField(values, header, ['descuento', 'discount', 'discountprice']);
+      const tokens = this.tokenize(line);
+      const parsed = hasHeader
+        ? this.parseHeaderRow(tokens, firstLineTokens)
+        : this.parsePositionalRow(tokens);
+      const name = parsed.name;
+      const code = parsed.code;
+      const priceValue = parsed.priceValue;
+      const discountValue = parsed.discountValue;
 
       const price = Number(priceValue);
       const discountPrice = discountValue ? Number(discountValue) : null;
@@ -133,15 +136,67 @@ export class AppService {
     };
   }
 
-  private readField(values: string[], header: string[], aliases: string[]) {
-    const headerIndex = header.findIndex((field) => aliases.includes(field));
-    if (headerIndex >= 0 && values[headerIndex]) {
-      return values[headerIndex];
+  private tokenize(line: string) {
+    if (line.includes('\t')) {
+      return line.split('\t').map((value) => value.trim()).filter(Boolean);
     }
 
-    const fallbackIndex = aliases.findIndex((alias) => header.includes(alias));
-    if (fallbackIndex >= 0 && values[fallbackIndex]) {
-      return values[fallbackIndex];
+    if (line.includes(',')) {
+      return line.split(',').map((value) => value.trim()).filter(Boolean);
+    }
+
+    return line
+      .split(/\s+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  private looksLikeHeader(tokens: string[]) {
+    const normalized = tokens.map((token) => token.toLowerCase());
+    const headerTerms = ['nombre', 'name', 'producto', 'codigo', 'code', 'sku', 'precio', 'price', 'valor', 'descuento', 'discount'];
+    return normalized.length > 0 && normalized.every((token) => headerTerms.includes(token));
+  }
+
+  private parseHeaderRow(values: string[], header: string[]) {
+    return {
+      name: this.readField(values, header, ['nombre', 'name', 'producto']),
+      code: this.readField(values, header, ['codigo', 'code', 'sku']),
+      priceValue: this.readField(values, header, ['precio', 'price', 'valor']),
+      discountValue: this.readField(values, header, ['descuento', 'discount', 'discountprice']),
+    };
+  }
+
+  private parsePositionalRow(tokens: string[]) {
+    if (tokens.length >= 4) {
+      return {
+        name: tokens.slice(0, -3).join(' '),
+        code: tokens[tokens.length - 3] ?? '',
+        priceValue: tokens[tokens.length - 2] ?? '',
+        discountValue: tokens[tokens.length - 1] ?? '',
+      };
+    }
+
+    if (tokens.length === 3) {
+      return {
+        name: tokens[0] ?? '',
+        code: tokens[1] ?? '',
+        priceValue: tokens[2] ?? '',
+        discountValue: '',
+      };
+    }
+
+    return {
+      name: tokens[0] ?? '',
+      code: tokens[1] ?? '',
+      priceValue: tokens[2] ?? '',
+      discountValue: tokens[3] ?? '',
+    };
+  }
+
+  private readField(values: string[], header: string[], aliases: string[]) {
+    const headerIndex = header.findIndex((field) => aliases.includes(field.toLowerCase()));
+    if (headerIndex >= 0 && values[headerIndex]) {
+      return values[headerIndex];
     }
 
     return '';

@@ -252,6 +252,7 @@ button.secondary {
   font-weight: 700;
   font-size: 1rem;
   margin: 0;
+  text-align: center;
 }
 
 .barcode-wrap {
@@ -298,6 +299,7 @@ button.secondary {
 .label-price-row {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 0.65rem;
   margin: 0;
   color: #475569;

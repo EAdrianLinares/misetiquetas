@@ -10,21 +10,23 @@ El usuario ya posee información en hojas de cálculo o texto. El sistema debe c
 
 ## Entrada esperada
 
-- Texto pegado desde Excel, Google Sheets, CSV o texto tabulado.
-- El contenido puede incluir múltiples filas y columnas.
+- Texto pegado desde Excel, Google Sheets, CSV o texto simple por filas.
+- Cada fila representa un producto.
+- Los campos deben venir en este orden: nombre, código, precio y descuento opcional.
+- Los valores pueden separarse por comas, tabulaciones o espacios.
 
 ## Comportamiento esperado
 
 1. El sistema recibe el texto pegado.
-2. El sistema detecta el formato de entrada.
-3. El sistema intenta interpretar los registros.
+2. El sistema separa el contenido por filas.
+3. El sistema interpreta cada fila usando el orden definido de campos.
 4. El sistema muestra los registros interpretados con su estado de validación.
 5. El usuario puede corregir los registros antes de continuar.
 
 ## Reglas de negocio
 
-- Debe aceptarse texto tabulado, CSV o contenido similar.
-- Cada registro interpretado debe tener nombre y código.
+- Debe aceptarse texto por filas separado por comas, tabulaciones o espacios.
+- Cada registro interpretado debe mantener el orden nombre, código, precio y descuento opcional.
 - Si falta información crítica, debe marcarse como inválido o con error.
 - El sistema debe informar claramente los problemas de formato.
 

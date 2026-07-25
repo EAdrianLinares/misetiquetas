@@ -4,7 +4,7 @@ import './App.css';
 import { BarcodePreview } from './components/BarcodePreview';
 import type { ParsedRecord, PreviewLabel } from './types';
 
-const defaultInput = 'nombre\tcodigo\tprecio\nProducto A\t001\t1200\nProducto B\t002\t800';
+const defaultInput = 'Producto A,001,1200\nProducto B,002,800,650';
 const TEMPLATE_SIZES = {
   standard: { widthMm: 80, heightMm: 50, label: '80 × 50 mm' },
   compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
@@ -138,7 +138,7 @@ function App() {
           <div className="panel-header">
             <div>
               <h2>1. Pega la información</h2>
-              <p>Usa un formato simple con columnas separadas por tabulaciones o comas.</p>
+              <p>Usa un formato simple por fila: nombre, código, precio y descuento opcional. Cada producto va en un enter.</p>
             </div>
             <button onClick={handleParse} disabled={loading}>
               {loading ? 'Procesando...' : 'Interpretar datos'}

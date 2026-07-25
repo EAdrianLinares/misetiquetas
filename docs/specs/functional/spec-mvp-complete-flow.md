@@ -18,7 +18,7 @@ Este spec describe el recorrido completo del usuario desde que pega los datos ha
 ## Flujo principal
 
 1. El usuario accede a la aplicación.
-2. El usuario pega información desde una fuente externa (Excel, Sheets, CSV o texto tabulado).
+2. El usuario pega información desde una fuente externa (Excel, Sheets, CSV o texto simple por filas).
 3. El sistema interpreta la información y genera registros estructurados.
 4. El sistema muestra los registros interpretados para revisión.
 5. El usuario corrige los datos que necesite.
@@ -33,6 +33,7 @@ Este spec describe el recorrido completo del usuario desde que pega los datos ha
 
 - El usuario no debe volver a escribir manualmente toda la información si ya la tiene en otra fuente.
 - La entrada puede venir de texto pegado o CSV.
+- Cada fila debe interpretarse en el orden nombre, código, precio y descuento opcional.
 - Cada registro interpretado debe tener nombre y código válidos.
 - El precio debe ser mayor que cero.
 - El precio con descuento, si existe, no puede ser mayor que el precio normal.
