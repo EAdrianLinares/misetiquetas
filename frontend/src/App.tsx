@@ -10,6 +10,11 @@ const TEMPLATE_SIZES = {
   standard: { widthMm: 80, heightMm: 50, label: '80 × 50 mm' },
   compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
 } as const;
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
+
+function buildApiUrl(path: '/api/parse' | '/api/preview' | '/api/print') {
+  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
 
 async function readJsonResponse<T>(response: Response) {
   const data = (await response.json()) as T & { message?: string | string[] };
@@ -43,7 +48,7 @@ function App() {
     setLoading(true);
     setMessage('Interpretando datos...');
     try {
-      const response = await fetch('/api/parse', {
+      const response = await fetch(buildApiUrl('/api/parse'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: inputText }),
@@ -66,7 +71,7 @@ function App() {
     setLoading(true);
     setMessage('Generando vista previa...');
     try {
-      const response = await fetch('/api/preview', {
+      const response = await fetch(buildApiUrl('/api/preview'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -108,7 +113,7 @@ function App() {
     setLoading(true);
     setMessage('Preparando impresión...');
     try {
-      const response = await fetch('/api/print', {
+      const response = await fetch(buildApiUrl('/api/print'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ labels: previewLabels }),
@@ -119,7 +124,7 @@ function App() {
       printWindow.document.open();
       printWindow.document.write(html);
       printWindow.document.close();
-      setPrintStatus(`${data.status}: ${data.printDocument?.labels ?? 0} etiquetas listas.`);
+      setPrintStatus(`${data.status}: ${Array.isArray(data.printDocument?.labels) ? data.printDocument.labels.length : 0} etiquetas listas.`);
       setMessage('Documento listo para impresión.');
     } catch (error) {
       printWindow.close();

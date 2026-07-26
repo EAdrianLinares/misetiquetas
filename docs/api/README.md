@@ -105,8 +105,24 @@ Prepara el contenido listo para impresión.
 {
   "status": "ready-for-print",
   "printDocument": {
+    "title": "Etiquetas listas para imprimir",
     "template": "standard",
-    "labels": 1
-  }
+    "widthMm": 80,
+    "heightMm": 50,
+    "labels": [
+      {
+        "id": "label-1",
+        "recordId": "record-1",
+        "name": "Producto A",
+        "code": "001",
+        "price": 1200,
+        "discountPrice": null,
+        "template": "standard",
+        "codeType": "barcode",
+        "templateWidthMm": 80,
+        "templateHeightMm": 50
+      }
+    ],
+    "generatedAt": "2026-07-25T20:00:00.000Z"
 }
 ```
