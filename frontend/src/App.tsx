@@ -2,13 +2,28 @@ import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import './App.css';
 import { BarcodePreview } from './components/BarcodePreview';
-import type { ParsedRecord, PreviewLabel } from './types';
+import type { ParsedRecord, PreviewLabel, PrintResponse } from './types';
+import { buildPrintDocumentHtml } from './utils/printDocument';
 
 const defaultInput = 'Producto A,001,1200\nProducto B,002,800,650';
 const TEMPLATE_SIZES = {
   standard: { widthMm: 80, heightMm: 50, label: '80 × 50 mm' },
   compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
 } as const;
+
+async function readJsonResponse<T>(response: Response) {
+  const data = (await response.json()) as T & { message?: string | string[] };
+
+  if (response.ok) {
+    return data;
+  }
+
+  if (Array.isArray(data.message)) {
+    throw new Error(data.message.join(' · '));
+  }
+
+  throw new Error(data.message ?? 'La solicitud no se pudo completar.');
+}
 
 function App() {
   const [inputText, setInputText] = useState(defaultInput);
@@ -33,15 +48,15 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: inputText }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse<{ records: ParsedRecord[]; errors: string[] }>(response);
       setRecords(data.records ?? []);
       setErrors(data.errors ?? []);
       setPreviewLabels([]);
       setPrintStatus(null);
       setMessage(data.records?.length ? 'Datos interpretados correctamente.' : 'No se encontraron registros.');
     } catch (error) {
-      setMessage('No se pudo conectar con el backend.');
-      setErrors(['Verifica que el servidor de NestJS esté en ejecución.']);
+      setMessage('No se pudieron interpretar los datos.');
+      setErrors([error instanceof Error ? error.message : 'Verifica que el servidor de NestJS esté en ejecución.']);
     } finally {
       setLoading(false);
     }
@@ -65,17 +80,31 @@ function App() {
           copies,
         }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse<{ labels: PreviewLabel[] }>(response);
       setPreviewLabels(data.labels ?? []);
+      setPrintStatus(null);
       setMessage('Vista previa lista para revisar.');
     } catch (error) {
-      setMessage('No se pudo generar la vista previa.');
+      setMessage(error instanceof Error ? error.message : 'No se pudo generar la vista previa.');
     } finally {
       setLoading(false);
     }
   };
 
   const handlePrint = async () => {
+    const printWindow = window.open('', '_blank');
+
+    if (!printWindow) {
+      setMessage('Tu navegador bloqueó la ventana de impresión. Permite ventanas emergentes e intenta de nuevo.');
+      setPrintStatus(null);
+      return;
+    }
+
+    printWindow.document.write(
+      '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8" /><title>Preparando impresión</title><style>body{font-family:Inter,Arial,sans-serif;padding:24px;color:#334155}</style></head><body><p>Preparando documento para impresión...</p></body></html>',
+    );
+    printWindow.document.close();
+
     setLoading(true);
     setMessage('Preparando impresión...');
     try {
@@ -84,11 +113,18 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ labels: previewLabels }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse<PrintResponse>(response);
+      const html = await buildPrintDocumentHtml(data.printDocument);
+
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
       setPrintStatus(`${data.status}: ${data.printDocument?.labels ?? 0} etiquetas listas.`);
       setMessage('Documento listo para impresión.');
     } catch (error) {
-      setMessage('No se pudo preparar la impresión.');
+      printWindow.close();
+      setPrintStatus(null);
+      setMessage(error instanceof Error ? error.message : 'No se pudo preparar la impresión.');
     } finally {
       setLoading(false);
     }
@@ -124,8 +160,8 @@ function App() {
     <div className="app-shell">
       <header className="hero-card">
         <div>
-          <p className="eyebrow">Etiquetas MVP</p>
-          <h1>Convierte datos pegados en etiquetas listas para imprimir.</h1>
+          <p className="eyebrow">Mis Etiquetas </p>
+          <h1>Convierte datos en etiquetas listas para imprimir.</h1>
           <p>
             Pega información desde Excel, Google Sheets, CSV o texto tabulado y convierte esa entrada en
             una vista previa lista para imprimir.
@@ -266,8 +302,8 @@ function App() {
               className={`label-card ${label.codeType === 'qr' ? 'qr-mode' : ''} ${label.template === 'compact' ? 'compact-mode' : 'standard-mode'}`}
               style={
                 {
-                  ['--label-width-mm' as '--label-width-mm']: `${label.templateWidthMm}mm`,
-                  ['--label-height-mm' as '--label-height-mm']: `${label.templateHeightMm}mm`,
+                  '--label-width-mm': `${label.templateWidthMm}mm`,
+                  '--label-height-mm': `${label.templateHeightMm}mm`,
                 } as CSSProperties
               }
             >

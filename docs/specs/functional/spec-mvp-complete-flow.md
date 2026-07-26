@@ -27,7 +27,7 @@ Este spec describe el recorrido completo del usuario desde que pega los datos ha
 8. El sistema genera una vista previa de las etiquetas.
 9. El usuario revisa la vista previa.
 10. El usuario inicia la impresión.
-11. El sistema prepara el documento y lo deja listo para imprimir.
+11. El sistema prepara un documento imprimible con las etiquetas y abre la impresión del navegador.
 
 ## Reglas de negocio
 
@@ -60,6 +60,7 @@ Este spec describe el recorrido completo del usuario desde que pega los datos ha
 - Configuración de cantidad de copias.
 - Generación de vista previa.
 - Preparación para impresión.
+- Generación de documento imprimible en el navegador.
 
 ## Requisitos no funcionales
 

@@ -23,6 +23,15 @@ export interface PreviewLabel {
   templateHeightMm: number;
 }
 
+export interface PrintDocument {
+  title: string;
+  template: string;
+  widthMm: number;
+  heightMm: number;
+  labels: PreviewLabel[];
+  generatedAt: string;
+}
+
 type TemplateSize = {
   widthMm: number;
   heightMm: number;
@@ -125,14 +134,18 @@ export class AppService {
   }
 
   preparePrint(labels: PreviewLabel[]) {
+    const firstLabel = labels[0];
+
     return {
       status: 'ready-for-print',
       printDocument: {
-        template: labels[0]?.template ?? 'standard',
-        widthMm: labels[0]?.templateWidthMm ?? TEMPLATE_SIZES.standard.widthMm,
-        heightMm: labels[0]?.templateHeightMm ?? TEMPLATE_SIZES.standard.heightMm,
-        labels: labels.length,
-      },
+        title: 'Etiquetas listas para imprimir',
+        template: firstLabel?.template ?? 'standard',
+        widthMm: firstLabel?.templateWidthMm ?? TEMPLATE_SIZES.standard.widthMm,
+        heightMm: firstLabel?.templateHeightMm ?? TEMPLATE_SIZES.standard.heightMm,
+        labels,
+        generatedAt: new Date().toISOString(),
+      } satisfies PrintDocument,
     };
   }
 

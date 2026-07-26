@@ -1,5 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { AppService } from './app.service';
+import { AppService, ParsedRecord, PreviewLabel } from './app.service';
 
 @Controller('api')
 export class AppController {
@@ -11,12 +11,12 @@ export class AppController {
   }
 
   @Post('preview')
-  preview(@Body() body: { records: any[]; template: string; codeType: string; copies: number }) {
+  preview(@Body() body: { records: ParsedRecord[]; template: string; codeType: string; copies: number }) {
     return this.appService.buildPreview(body);
   }
 
   @Post('print')
-  print(@Body() body: { labels: any[] }) {
+  print(@Body() body: { labels: PreviewLabel[] }) {
     return this.appService.preparePrint(body.labels ?? []);
   }
 }

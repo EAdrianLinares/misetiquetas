@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
-import JsBarcode from 'jsbarcode';
-import QRCode from 'qrcode';
+import { buildQrDataUrl, renderBarcodeIntoSvg } from '../utils/codeRendering';
 
 interface BarcodePreviewProps {
   value: string;
@@ -11,7 +10,6 @@ interface BarcodePreviewProps {
 export function BarcodePreview({ value, codeType, template }: BarcodePreviewProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const isCompact = template === 'compact';
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -22,41 +20,10 @@ export function BarcodePreview({ value, codeType, template }: BarcodePreviewProp
         return;
       }
 
-      while (svg.firstChild) {
-        svg.removeChild(svg.firstChild);
-      }
-
       if (img) {
         img.removeAttribute('src');
       }
-      if (!value) {
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', '10');
-        text.setAttribute('y', '24');
-        text.setAttribute('fill', '#64748b');
-        text.textContent = 'Sin código';
-        svg.appendChild(text);
-        return;
-      }
-
-      try {
-        JsBarcode(svg, value, {
-          format: 'CODE128',
-          displayValue: false,
-          width: isCompact ? 1.4 : 1.8,
-          height: isCompact ? 28 : 48,
-          margin: 8,
-          background: '#ffffff',
-          lineColor: '#111827',
-        });
-      } catch (error) {
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', '10');
-        text.setAttribute('y', '24');
-        text.setAttribute('fill', '#64748b');
-        text.textContent = 'Código no disponible';
-        svg.appendChild(text);
-      }
+      renderBarcodeIntoSvg(svg, value, template);
       return;
     }
 
@@ -71,19 +38,17 @@ export function BarcodePreview({ value, codeType, template }: BarcodePreviewProp
     }
 
     let active = true;
-    QRCode.toDataURL(value, {
-      errorCorrectionLevel: 'M',
-      margin: 1,
-      width: 180,
-      color: {
-        dark: '#111827',
-        light: '#ffffff',
-      },
-    })
+    buildQrDataUrl(value)
       .then((src: string) => {
         if (active) {
-          img.src = src;
-          img.alt = `Código QR para ${value}`;
+          if (src) {
+            img.src = src;
+            img.alt = `Código QR para ${value}`;
+            return;
+          }
+
+          img.removeAttribute('src');
+          img.alt = 'Código QR no disponible';
         }
       })
       .catch(() => {
@@ -96,7 +61,7 @@ export function BarcodePreview({ value, codeType, template }: BarcodePreviewProp
     return () => {
       active = false;
     };
-  }, [value, codeType, isCompact]);
+  }, [value, codeType, template]);
 
   if (codeType === 'qr') {
     return <img ref={imgRef} className="qr-image" alt="Código QR" />;

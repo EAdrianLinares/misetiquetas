@@ -20,3 +20,17 @@ export interface PreviewLabel {
   templateWidthMm: number;
   templateHeightMm: number;
 }
+
+export interface PrintDocument {
+  title: string;
+  template: string;
+  widthMm: number;
+  heightMm: number;
+  labels: PreviewLabel[];
+  generatedAt: string;
+}
+
+export interface PrintResponse {
+  status: string;
+  printDocument: PrintDocument;
+}
