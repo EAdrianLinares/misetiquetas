@@ -31,6 +31,7 @@ async function readJsonResponse<T>(response: Response) {
 }
 
 function App() {
+  const coffeeSupportKey = '0091439175';
   const [inputText, setInputText] = useState(defaultInput);
   const [records, setRecords] = useState<ParsedRecord[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
@@ -41,11 +42,15 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('Pega tus datos y pulsa interpretar para comenzar.');
   const [printStatus, setPrintStatus] = useState<string | null>(null);
+  const [showPrintSuccessModal, setShowPrintSuccessModal] = useState(false);
+  const [copySuccessMessage, setCopySuccessMessage] = useState<string | null>(null);
 
   const validRecords = useMemo(() => records.filter((record) => record.validationState === 'valid'), [records]);
 
   const handleParse = async () => {
     setLoading(true);
+    setShowPrintSuccessModal(false);
+    setCopySuccessMessage(null);
     setMessage('Interpretando datos...');
     try {
       const response = await fetch(buildApiUrl('/api/parse'), {
@@ -69,6 +74,8 @@ function App() {
 
   const handlePreview = async () => {
     setLoading(true);
+    setShowPrintSuccessModal(false);
+    setCopySuccessMessage(null);
     setMessage('Generando vista previa...');
     try {
       const response = await fetch(buildApiUrl('/api/preview'), {
@@ -102,6 +109,8 @@ function App() {
     if (!printWindow) {
       setMessage('Tu navegador bloqueó la ventana de impresión. Permite ventanas emergentes e intenta de nuevo.');
       setPrintStatus(null);
+      setShowPrintSuccessModal(false);
+      setCopySuccessMessage(null);
       return;
     }
 
@@ -111,6 +120,8 @@ function App() {
     printWindow.document.close();
 
     setLoading(true);
+    setShowPrintSuccessModal(false);
+    setCopySuccessMessage(null);
     setMessage('Preparando impresión...');
     try {
       const response = await fetch(buildApiUrl('/api/print'), {
@@ -126,12 +137,26 @@ function App() {
       printWindow.document.close();
       setPrintStatus(`${data.status}: ${Array.isArray(data.printDocument?.labels) ? data.printDocument.labels.length : 0} etiquetas listas.`);
       setMessage('Documento listo para impresión.');
+      setShowPrintSuccessModal(true);
+      setCopySuccessMessage(null);
     } catch (error) {
       printWindow.close();
       setPrintStatus(null);
+      setShowPrintSuccessModal(false);
+      setCopySuccessMessage(null);
       setMessage(error instanceof Error ? error.message : 'No se pudo preparar la impresión.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCopyCoffeeKey = async () => {
+    try {
+      await navigator.clipboard.writeText(coffeeSupportKey);
+      setCopySuccessMessage('Llave copiada.');
+    } catch (error) {
+      setCopySuccessMessage(null);
+      setMessage(error instanceof Error ? error.message : 'No se pudo copiar la llave.');
     }
   };
 
@@ -328,6 +353,59 @@ function App() {
           ))}
         </div>
       </section>
+
+      {showPrintSuccessModal && (
+        <div
+          className="success-modal-overlay"
+          role="presentation"
+          onClick={() => {
+            setShowPrintSuccessModal(false);
+            setCopySuccessMessage(null);
+          }}
+        >
+          <div
+            className="success-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="success-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="success-modal-title">🎉 ¡Tus etiquetas están listas!</h2>
+            <p className="success-modal-main">✅ El PDF se descargó correctamente.</p>
+            <p>
+              Esperamos que esta herramienta te haya ahorrado tiempo. <b>Negocio al Clic</b> desarrolla herramientas
+              gratuitas para emprendedores y empresarios.
+            </p>
+            <p>
+              Si esta aplicación te ayudó, puedes apoyarnos para seguir creando nuevas herramientas.
+            </p>
+            <div className="coffee-support">
+              <p>Puedes invitarnos un café ☕</p>
+              <img src="/QR.webp" alt="Código QR para invitar un café" className="coffee-qr" />
+              <p>Escanea el código QR para invitarnos un café.</p>
+              <div className="coffee-key-row">
+                <span>🗝️ {coffeeSupportKey}</span>
+                <button type="button" className="copy-key-button" onClick={handleCopyCoffeeKey}>
+                  📋
+                </button>
+              </div>
+              {copySuccessMessage && <p className="copy-key-success">{copySuccessMessage}</p>}
+            </div>
+            <div className="close-modal-row">
+              <button
+                className="close-modal-button"
+                type="button"
+                onClick={() => {
+                  setShowPrintSuccessModal(false);
+                  setCopySuccessMessage(null);
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

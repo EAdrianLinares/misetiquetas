@@ -323,6 +323,96 @@ button.secondary {
   color: #16a34a;
 }
 
+.success-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.success-modal {
+  width: min(100%, 640px);
+  padding: 1.5rem;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 10px 35px rgba(15, 23, 42, 0.25);
+  color: #0f172a;
+}
+
+.success-modal h2 {
+  margin: 0 0 1rem;
+  color: #166534;
+  text-align: center;
+}
+
+.success-modal-main {
+  margin-top: 0;
+  font-weight: 700;
+}
+
+.success-modal p {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.coffee-qr {
+  display: block;
+  width: 180px;
+  max-width: 100%;
+  height: auto;
+  margin-bottom: 0.75rem;
+}
+
+.coffee-support {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.coffee-key-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.copy-key-button {
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.5rem;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.copy-key-success {
+  color: #166534;
+  font-weight: 700;
+}
+
+.success-modal button {
+  display: inline-flex;
+}
+
+.close-modal-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.25rem;
+}
+
+.close-modal-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 @media (max-width: 900px) {
   .content-grid {
     grid-template-columns: 1fr;
