@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import './App.css';
 import { BarcodePreview } from './components/BarcodePreview';
@@ -71,7 +71,7 @@ function App() {
   const [template, setTemplate] = useState('standard');
   const [codeType, setCodeType] = useState('barcode');
   const [copies, setCopies] = useState(2);
-  const [paperProfileId, setPaperProfileId] = useState('a4-default');
+  const [paperProfileId, setPaperProfileId] = useState('continuous-58-default');
   const [customPrintSettings, setCustomPrintSettings] = useState<PrintSettings>(profileToSettings(PAPER_PROFILES.find((profile) => profile.id === 'custom') ?? PAPER_PROFILES[0]));
   const [allowZeroMarginOnContinuous, setAllowZeroMarginOnContinuous] = useState(false);
   const [previewLabels, setPreviewLabels] = useState<PreviewLabel[]>([]);
@@ -113,6 +113,19 @@ function App() {
     () => (previewLayout ? paginate(previewLabels, previewLayout.itemsPerPage) : []),
     [previewLabels, previewLayout],
   );
+
+  useEffect(() => {
+    if (!showPrintSuccessModal) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setShowPrintSuccessModal(false);
+      setCopySuccessMessage(null);
+    }, 15000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [showPrintSuccessModal]);
 
   const handleParse = async () => {
     setLoading(true);
@@ -484,25 +497,7 @@ function App() {
                       />
                     </label>
                   </>
-                ) : (
-                  <div className="profile-summary">
-                    <p>
-                      Papel: <b>{PAPER_TYPE_LABELS[selectedPaperProfile.paperType]}</b>
-                    </p>
-                    <p>
-                      Orientación: <b>{selectedPaperProfile.orientation === 'portrait' ? 'Vertical' : 'Horizontal'}</b>
-                    </p>
-                    <p>
-                      Columnas: <b>{selectedPaperProfile.columns}</b>
-                    </p>
-                    <p>
-                      Márgenes: <b>{selectedPaperProfile.marginTopMm} / {selectedPaperProfile.marginRightMm} / {selectedPaperProfile.marginBottomMm} / {selectedPaperProfile.marginLeftMm} mm</b>
-                    </p>
-                    <p>
-                      Separación: <b>{selectedPaperProfile.gapHorizontalMm}mm H · {selectedPaperProfile.gapVerticalMm}mm V</b>
-                    </p>
-                  </div>
-                )}
+                ) : null}
               </div>
 
               {printSettings.paperType.startsWith('continuous') && (
