@@ -1,5 +1,6 @@
 import type { PreviewLabel, PrintDocument } from '../types';
 import { buildBarcodeMarkup, buildQrDataUrl } from './codeRendering';
+import { buildLayoutPlan, buildPrintSettings, paginate } from './printLayout';
 
 const currencyFormatter = new Intl.NumberFormat('es-CO');
 
@@ -47,7 +48,58 @@ async function buildLabelMarkup(label: PreviewLabel) {
 
 export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
   const labelMarkup = await Promise.all(printDocument.labels.map((label) => buildLabelMarkup(label)));
+  const settings = buildPrintSettings({
+    profile: {
+      id: 'runtime-print-profile',
+      name: 'Runtime profile',
+      paperType: printDocument.paperType,
+      orientation: printDocument.orientation,
+      columns: printDocument.columns,
+      marginTopMm: printDocument.marginTopMm,
+      marginBottomMm: printDocument.marginBottomMm,
+      marginLeftMm: printDocument.marginLeftMm,
+      marginRightMm: printDocument.marginRightMm,
+      gapHorizontalMm: printDocument.gapHorizontalMm,
+      gapVerticalMm: printDocument.gapVerticalMm,
+      isCustom: true,
+    },
+    customSettings: {
+      paperType: printDocument.paperType,
+      orientation: printDocument.orientation,
+      columns: printDocument.columns,
+      marginTopMm: printDocument.marginTopMm,
+      marginBottomMm: printDocument.marginBottomMm,
+      marginLeftMm: printDocument.marginLeftMm,
+      marginRightMm: printDocument.marginRightMm,
+      gapHorizontalMm: printDocument.gapHorizontalMm,
+      gapVerticalMm: printDocument.gapVerticalMm,
+      allowZeroMarginOnContinuous: printDocument.paperType.startsWith('continuous'),
+    },
+    allowZeroMarginOnContinuous: printDocument.paperType.startsWith('continuous'),
+  });
+  const layoutPlan = buildLayoutPlan({
+    labelWidthMm: printDocument.widthMm,
+    labelHeightMm: printDocument.heightMm,
+    totalItems: printDocument.labels.length,
+    settings,
+  });
+  const pageSizeValue = (() => {
+    if (settings.paperType === 'a4') {
+      return settings.orientation === 'landscape' ? 'A4 landscape' : 'A4';
+    }
+    if (settings.paperType === 'letter') {
+      return settings.orientation === 'landscape' ? 'letter landscape' : 'letter';
+    }
 
+    return `${layoutPlan.paperWidthMm}mm ${layoutPlan.paperHeightMm}mm`;
+  })();
+  const pages = paginate(labelMarkup, layoutPlan.itemsPerPage);
+  const pageMarkup = pages
+    .map(
+      (pageLabels) =>
+        `<section class="print-page"><div class="print-grid ${layoutPlan.columns === 1 ? 'single-column' : 'multi-column'}">${pageLabels.join('')}</div></section>`,
+    )
+    .join('');
   return `<!DOCTYPE html>
 <html lang="es">
   <head>
@@ -83,11 +135,33 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
         color: #475569;
       }
 
+      .print-page {
+        width: ${layoutPlan.paperWidthMm - settings.marginLeftMm - settings.marginRightMm}mm;
+        margin: 0 auto 12mm;
+        break-after: page;
+      }
+
+      .print-page:last-child {
+        break-after: auto;
+      }
+
       .print-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(${printDocument.widthMm}mm, 1fr));
-        gap: 6mm;
-        align-items: start;
+        grid-template-columns: repeat(${layoutPlan.columns}, minmax(0, 1fr));
+        column-gap: ${settings.gapHorizontalMm}mm;
+        row-gap: ${settings.gapVerticalMm}mm;
+        align-content: start;
+        justify-items: start;
+      }
+
+      .print-grid.single-column {
+        justify-items: center;
+      }
+
+      .print-grid.single-column .label-card {
+        justify-self: center;
+        margin-left: auto;
+        margin-right: auto;
       }
 
       .label-card {
@@ -184,7 +258,8 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
       }
 
       @page {
-        margin: 10mm;
+        size: ${pageSizeValue};
+        margin: ${settings.marginTopMm}mm ${settings.marginRightMm}mm ${settings.marginBottomMm}mm ${settings.marginLeftMm}mm;
       }
 
       @media print {
@@ -200,8 +275,8 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
           display: none;
         }
 
-        .print-grid {
-          gap: 3mm;
+        .print-page {
+          margin: 0;
         }
 
         .label-card {
@@ -216,9 +291,7 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
         <span>${escapeHtml(printDocument.title)}</span>
         <span>${escapeHtml(new Date(printDocument.generatedAt).toLocaleString('es-CO'))}</span>
       </header>
-      <section class="print-grid">
-        ${labelMarkup.join('')}
-      </section>
+      ${pageMarkup}
     </main>
     <script>
       window.addEventListener('load', () => {

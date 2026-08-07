@@ -14,9 +14,20 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+  describe('api', () => {
+    it('parse should return error when content is empty', () => {
+      const result = appController.parse({ content: '' });
+      expect(result.records).toEqual([]);
+      expect(result.errors).toContain(
+        'No se recibió contenido para interpretar.',
+      );
+    });
+
+    it('print should return ready-for-print status', () => {
+      const result = appController.print({
+        labels: [],
+      });
+      expect(result.status).toBe('ready-for-print');
     });
   });
 });

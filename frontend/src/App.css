@@ -135,6 +135,43 @@ button.secondary {
   font-weight: 600;
 }
 
+.config-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.config-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1rem;
+  background: #f8fafc;
+}
+
+.config-card h3 {
+  margin: 0 0 0.75rem;
+  color: #0f172a;
+}
+
+.profile-summary p {
+  margin: 0 0 0.45rem;
+  color: #334155;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.5rem 0 1rem;
+  color: #334155;
+  font-weight: 600;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
 .record-table-wrapper {
   border: 1px solid #e2e8f0;
   border-radius: 16px;
@@ -224,6 +261,31 @@ button.secondary {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
   align-items: start;
+}
+
+.preview-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.preview-page {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.9rem;
+  background: #f8fafc;
+}
+
+.preview-page-title {
+  margin: 0 0 0.75rem;
+  color: #475569;
+  font-weight: 700;
+}
+
+.layout-summary {
+  margin: 0;
+  color: #334155;
+  font-weight: 600;
 }
 
 .label-card {

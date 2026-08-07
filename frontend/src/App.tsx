@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import './App.css';
 import { BarcodePreview } from './components/BarcodePreview';
-import type { ParsedRecord, PreviewLabel, PrintResponse } from './types';
+import type { PaperProfile, PaperType, PrintOrientation, PrintSettings, ParsedRecord, PreviewLabel, PrintResponse } from './types';
 import { buildPrintDocumentHtml } from './utils/printDocument';
+import { buildLayoutPlan, buildPrintSettings, paginate, PAPER_PROFILES } from './utils/printLayout';
 
 const defaultInput = 'Producto A,001,1200\nProducto B,002,800,650';
 const TEMPLATE_SIZES = {
@@ -11,9 +12,41 @@ const TEMPLATE_SIZES = {
   compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
 } as const;
 const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
+const PAPER_TYPE_LABELS: Record<PaperType, string> = {
+  a4: 'A4',
+  letter: 'Carta',
+  'continuous-58': 'Continuo 58 mm',
+  'continuous-80': 'Continuo 80 mm',
+  'continuous-100': 'Continuo 100 mm',
+};
 
 function buildApiUrl(path: '/api/parse' | '/api/preview' | '/api/print') {
   return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
+
+function profileToSettings(profile: PaperProfile): PrintSettings {
+  return {
+    paperType: profile.paperType,
+    orientation: profile.orientation,
+    columns: profile.columns,
+    marginTopMm: profile.marginTopMm,
+    marginBottomMm: profile.marginBottomMm,
+    marginLeftMm: profile.marginLeftMm,
+    marginRightMm: profile.marginRightMm,
+    gapHorizontalMm: profile.gapHorizontalMm,
+    gapVerticalMm: profile.gapVerticalMm,
+    allowZeroMarginOnContinuous: false,
+  };
+}
+
+function profileNeedsZeroMargins(profile: PaperProfile) {
+  return (
+    profile.paperType.startsWith('continuous') &&
+    (profile.marginTopMm === 0 ||
+      profile.marginBottomMm === 0 ||
+      profile.marginLeftMm === 0 ||
+      profile.marginRightMm === 0)
+  );
 }
 
 async function readJsonResponse<T>(response: Response) {
@@ -38,6 +71,9 @@ function App() {
   const [template, setTemplate] = useState('standard');
   const [codeType, setCodeType] = useState('barcode');
   const [copies, setCopies] = useState(2);
+  const [paperProfileId, setPaperProfileId] = useState('a4-default');
+  const [customPrintSettings, setCustomPrintSettings] = useState<PrintSettings>(profileToSettings(PAPER_PROFILES.find((profile) => profile.id === 'custom') ?? PAPER_PROFILES[0]));
+  const [allowZeroMarginOnContinuous, setAllowZeroMarginOnContinuous] = useState(false);
   const [previewLabels, setPreviewLabels] = useState<PreviewLabel[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('Pega tus datos y pulsa interpretar para comenzar.');
@@ -46,6 +82,37 @@ function App() {
   const [copySuccessMessage, setCopySuccessMessage] = useState<string | null>(null);
 
   const validRecords = useMemo(() => records.filter((record) => record.validationState === 'valid'), [records]);
+  const selectedPaperProfile = useMemo(
+    () => PAPER_PROFILES.find((profile) => profile.id === paperProfileId) ?? PAPER_PROFILES[0],
+    [paperProfileId],
+  );
+  const isCustomPaperProfile = selectedPaperProfile.isCustom === true;
+  const printSettings = useMemo(
+    () =>
+      buildPrintSettings({
+        profile: selectedPaperProfile,
+        customSettings: isCustomPaperProfile ? customPrintSettings : undefined,
+        allowZeroMarginOnContinuous,
+      }),
+    [allowZeroMarginOnContinuous, customPrintSettings, isCustomPaperProfile, selectedPaperProfile],
+  );
+  const previewLayout = useMemo(() => {
+    const firstLabel = previewLabels[0];
+    if (!firstLabel) {
+      return null;
+    }
+
+    return buildLayoutPlan({
+      labelWidthMm: firstLabel.templateWidthMm,
+      labelHeightMm: firstLabel.templateHeightMm,
+      totalItems: previewLabels.length,
+      settings: printSettings,
+    });
+  }, [previewLabels, printSettings]);
+  const previewPages = useMemo(
+    () => (previewLayout ? paginate(previewLabels, previewLayout.itemsPerPage) : []),
+    [previewLabels, previewLayout],
+  );
 
   const handleParse = async () => {
     setLoading(true);
@@ -127,7 +194,7 @@ function App() {
       const response = await fetch(buildApiUrl('/api/print'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labels: previewLabels }),
+        body: JSON.stringify({ labels: previewLabels, settings: printSettings }),
       });
       const data = await readJsonResponse<PrintResponse>(response);
       const html = await buildPrintDocumentHtml(data.printDocument);
@@ -186,6 +253,28 @@ function App() {
     );
   };
 
+  const handleProfileChange = (nextProfileId: string) => {
+    setPaperProfileId(nextProfileId);
+
+    const nextProfile = PAPER_PROFILES.find((profile) => profile.id === nextProfileId);
+    setAllowZeroMarginOnContinuous(nextProfile ? profileNeedsZeroMargins(nextProfile) : false);
+
+    if (nextProfile?.isCustom) {
+      return;
+    }
+
+    if (nextProfile) {
+      setCustomPrintSettings(profileToSettings(nextProfile));
+    }
+  };
+
+  const updateCustomPrintSettings = <K extends keyof PrintSettings>(field: K, value: PrintSettings[K]) => {
+    setCustomPrintSettings((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
   return (
     <div className="app-shell">
       <header className="hero-card">
@@ -237,30 +326,196 @@ function App() {
             </div>
           </div>
 
-          <div className="controls">
-            <label>
-              Plantilla
-              <select value={template} onChange={(event) => setTemplate(event.target.value)}>
-                <option value="standard">Estándar · {TEMPLATE_SIZES.standard.label}</option>
-                <option value="compact">Compacta · {TEMPLATE_SIZES.compact.label}</option>
-              </select>
-            </label>
-            <label>
-              Tipo de código
-              <select value={codeType} onChange={(event) => setCodeType(event.target.value)}>
-                <option value="barcode">Código de barras</option>
-                <option value="qr">Código QR</option>
-              </select>
-            </label>
-            <label>
-              Copias
-              <input
-                type="number"
-                min="1"
-                value={copies}
-                onChange={(event) => setCopies(Number(event.target.value))}
-              />
-            </label>
+          <div className="config-split">
+            <div className="config-card">
+              <h3>Configuración de la etiqueta</h3>
+              <div className="controls">
+                <label>
+                  Plantilla
+                  <select value={template} onChange={(event) => setTemplate(event.target.value)}>
+                    <option value="standard">Estándar · {TEMPLATE_SIZES.standard.label}</option>
+                    <option value="compact">Compacta · {TEMPLATE_SIZES.compact.label}</option>
+                  </select>
+                </label>
+                <label>
+                  Tipo de código
+                  <select value={codeType} onChange={(event) => setCodeType(event.target.value)}>
+                    <option value="barcode">Código de barras</option>
+                    <option value="qr">Código QR</option>
+                  </select>
+                </label>
+                <label>
+                  Copias
+                  <input
+                    type="number"
+                    min="1"
+                    value={copies}
+                    onChange={(event) => setCopies(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="config-card">
+              <h3>Configuración de impresión</h3>
+              <div className="controls">
+                <label>
+                  Perfil de papel
+                  <select value={paperProfileId} onChange={(event) => handleProfileChange(event.target.value)}>
+                    {PAPER_PROFILES.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {isCustomPaperProfile ? (
+                  <>
+                    <label>
+                      Papel base
+                      <select
+                        value={customPrintSettings.paperType}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('paperType', event.target.value as PaperType)
+                        }
+                      >
+                        <option value="a4">{PAPER_TYPE_LABELS.a4}</option>
+                        <option value="letter">{PAPER_TYPE_LABELS.letter}</option>
+                        <option value="continuous-58">{PAPER_TYPE_LABELS['continuous-58']}</option>
+                        <option value="continuous-80">{PAPER_TYPE_LABELS['continuous-80']}</option>
+                        <option value="continuous-100">{PAPER_TYPE_LABELS['continuous-100']}</option>
+                      </select>
+                    </label>
+                    <label>
+                      Orientación
+                      <select
+                        value={customPrintSettings.orientation}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('orientation', event.target.value as PrintOrientation)
+                        }
+                      >
+                        <option value="portrait">Vertical</option>
+                        <option value="landscape">Horizontal</option>
+                      </select>
+                    </label>
+                    <label>
+                      Columnas
+                      <input
+                        type="number"
+                        min="1"
+                        max="4"
+                        value={customPrintSettings.columns}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('columns', Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Margen superior (mm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={customPrintSettings.marginTopMm}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('marginTopMm', Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Margen inferior (mm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={customPrintSettings.marginBottomMm}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('marginBottomMm', Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Margen izquierdo (mm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={customPrintSettings.marginLeftMm}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('marginLeftMm', Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Margen derecho (mm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={customPrintSettings.marginRightMm}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('marginRightMm', Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Separación horizontal (mm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={customPrintSettings.gapHorizontalMm}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('gapHorizontalMm', Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Separación vertical (mm)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={customPrintSettings.gapVerticalMm}
+                        onChange={(event) =>
+                          updateCustomPrintSettings('gapVerticalMm', Number(event.target.value))
+                        }
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <div className="profile-summary">
+                    <p>
+                      Papel: <b>{PAPER_TYPE_LABELS[selectedPaperProfile.paperType]}</b>
+                    </p>
+                    <p>
+                      Orientación: <b>{selectedPaperProfile.orientation === 'portrait' ? 'Vertical' : 'Horizontal'}</b>
+                    </p>
+                    <p>
+                      Columnas: <b>{selectedPaperProfile.columns}</b>
+                    </p>
+                    <p>
+                      Márgenes: <b>{selectedPaperProfile.marginTopMm} / {selectedPaperProfile.marginRightMm} / {selectedPaperProfile.marginBottomMm} / {selectedPaperProfile.marginLeftMm} mm</b>
+                    </p>
+                    <p>
+                      Separación: <b>{selectedPaperProfile.gapHorizontalMm}mm H · {selectedPaperProfile.gapVerticalMm}mm V</b>
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {printSettings.paperType.startsWith('continuous') && (
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={allowZeroMarginOnContinuous}
+                    onChange={(event) => setAllowZeroMarginOnContinuous(event.target.checked)}
+                  />
+                  Permitir márgenes de 0mm en continuo
+                </label>
+              )}
+            </div>
           </div>
 
           <div className="record-table-wrapper">
@@ -325,31 +580,55 @@ function App() {
 
         {printStatus && <div className="success-box">{printStatus}</div>}
 
-        <div className="preview-grid">
-          {previewLabels.map((label) => (
-            <article
-              key={label.id}
-              className={`label-card ${label.codeType === 'qr' ? 'qr-mode' : ''} ${label.template === 'compact' ? 'compact-mode' : 'standard-mode'}`}
-              style={
-                {
-                  '--label-width-mm': `${label.templateWidthMm}mm`,
-                  '--label-height-mm': `${label.templateHeightMm}mm`,
-                } as CSSProperties
-              }
-            >
-              <p className="label-name">{label.name}</p>
-              <div className="barcode-wrap">
-                <BarcodePreview value={label.code} codeType={label.codeType} template={label.template} />
+        {previewLayout && (
+          <p className="layout-summary">
+            Layout: {previewLayout.columns} columna(s) · {previewLayout.rowsPerPage} fila(s)/página · {previewLayout.pageCount} página(s)
+          </p>
+        )}
+        <div className="preview-pages">
+          {previewPages.map((pageLabels, pageIndex) => (
+            <section key={`preview-page-${pageIndex + 1}`} className="preview-page">
+              <p className="preview-page-title">Página {pageIndex + 1}</p>
+              <div
+                className="preview-grid"
+                style={
+                  previewLayout
+                    ? ({
+                        gridTemplateColumns: `repeat(${previewLayout.columns}, minmax(0, 1fr))`,
+                        columnGap: `${printSettings.gapHorizontalMm}mm`,
+                        rowGap: `${printSettings.gapVerticalMm}mm`,
+                        justifyItems: previewLayout.columns === 1 ? 'center' : 'start',
+                      } as CSSProperties)
+                    : undefined
+                }
+              >
+                {pageLabels.map((label) => (
+                  <article
+                    key={label.id}
+                    className={`label-card ${label.codeType === 'qr' ? 'qr-mode' : ''} ${label.template === 'compact' ? 'compact-mode' : 'standard-mode'}`}
+                    style={
+                      {
+                        '--label-width-mm': `${label.templateWidthMm}mm`,
+                        '--label-height-mm': `${label.templateHeightMm}mm`,
+                      } as CSSProperties
+                    }
+                  >
+                    <p className="label-name">{label.name}</p>
+                    <div className="barcode-wrap">
+                      <BarcodePreview value={label.code} codeType={label.codeType} template={label.template} />
+                    </div>
+                    <p className="label-price-row">
+                      <span className={label.discountPrice !== null ? 'label-price-strike' : 'label-price-current'}>
+                        {label.price.toLocaleString('es-CO')}
+                      </span>
+                      {label.discountPrice !== null ? (
+                        <span className="label-discount-current">{label.discountPrice.toLocaleString('es-CO')}</span>
+                      ) : null}
+                    </p>
+                  </article>
+                ))}
               </div>
-              <p className="label-price-row">
-                <span className={label.discountPrice !== null ? 'label-price-strike' : 'label-price-current'}>
-                  {label.price.toLocaleString('es-CO')}
-                </span>
-                {label.discountPrice !== null ? (
-                  <span className="label-discount-current">{label.discountPrice.toLocaleString('es-CO')}</span>
-                ) : null}
-              </p>
-            </article>
+            </section>
           ))}
         </div>
       </section>

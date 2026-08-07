@@ -21,11 +21,61 @@ export interface PreviewLabel {
   templateHeightMm: number;
 }
 
+export type PaperType =
+  | 'a4'
+  | 'letter'
+  | 'continuous-58'
+  | 'continuous-80'
+  | 'continuous-100';
+
+export type PrintOrientation = 'portrait' | 'landscape';
+
+export interface PaperProfile {
+  id: string;
+  name: string;
+  paperType: PaperType;
+  orientation: PrintOrientation;
+  columns: number;
+  marginTopMm: number;
+  marginBottomMm: number;
+  marginLeftMm: number;
+  marginRightMm: number;
+  gapHorizontalMm: number;
+  gapVerticalMm: number;
+  isCustom?: boolean;
+}
+
+export interface PrintSettings {
+  paperType: PaperType;
+  orientation: PrintOrientation;
+  columns: number;
+  marginTopMm: number;
+  marginBottomMm: number;
+  marginLeftMm: number;
+  marginRightMm: number;
+  gapHorizontalMm: number;
+  gapVerticalMm: number;
+  allowZeroMarginOnContinuous: boolean;
+}
+
 export interface PrintDocument {
   title: string;
   template: string;
   widthMm: number;
   heightMm: number;
+  paperType: PaperType;
+  orientation: PrintOrientation;
+  columns: number;
+  marginTopMm: number;
+  marginBottomMm: number;
+  marginLeftMm: number;
+  marginRightMm: number;
+  gapHorizontalMm: number;
+  gapVerticalMm: number;
+  rowsPerPage: number;
+  itemsPerPage: number;
+  pageCount: number;
+  pageHeightMm: number;
   labels: PreviewLabel[];
   generatedAt: string;
 }
