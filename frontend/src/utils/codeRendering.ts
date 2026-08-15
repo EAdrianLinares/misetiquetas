@@ -33,13 +33,16 @@ export function renderBarcodeIntoSvg(svg: SVGSVGElement, value: string, template
   try {
     JsBarcode(svg, value, {
       format: 'CODE128',
-      displayValue: false,
+      displayValue: true,
+      fontSize: template === 'compact' ? 9 : 11,
+      textMargin: 0,
       width: template === 'compact' ? 1.4 : 1.8,
-      height: template === 'compact' ? 28 : 48,
-      margin: 8,
+      height: template === 'compact' ? 24 : 38,
+      margin: 4,
       background: '#ffffff',
       lineColor: '#111827',
     });
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   } catch {
     const fallback = buildFallbackSvg('Código no disponible');
     while (fallback.firstChild) {

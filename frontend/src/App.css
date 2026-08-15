@@ -179,6 +179,69 @@ button.secondary {
   background: #f8fafc;
 }
 
+.record-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 700;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.compact-toggle {
+  min-width: 110px;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.record-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+}
+
+.record-summary-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+}
+
+.record-summary-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.record-summary-main strong {
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+
+.record-summary-main span {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.record-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.8rem;
+  color: #334155;
+  flex-shrink: 0;
+}
+
 .record-table {
   width: 100%;
   border-collapse: collapse;
@@ -326,6 +389,7 @@ button.secondary {
   border-radius: 12px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
+  overflow: hidden;
 }
 
 .label-card.compact-mode .label-name {
@@ -346,6 +410,7 @@ button.secondary {
 }
 
 .barcode-svg {
+  display: block;
   width: 100%;
   height: auto;
   max-height: 92px;

@@ -203,6 +203,7 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
         border: 1px solid #e2e8f0;
         border-radius: 3mm;
         background: #ffffff;
+        overflow: hidden;
       }
 
       .compact-mode .barcode-wrap {
@@ -214,6 +215,7 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
       }
 
       .barcode-svg {
+        display: block;
         width: 100%;
         height: auto;
         max-height: 24mm;

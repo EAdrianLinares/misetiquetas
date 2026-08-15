@@ -6,7 +6,7 @@ import type { PaperProfile, PaperType, PrintOrientation, PrintSettings, ParsedRe
 import { buildPrintDocumentHtml } from './utils/printDocument';
 import { buildLayoutPlan, buildPrintSettings, paginate, PAPER_PROFILES } from './utils/printLayout';
 
-const defaultInput = 'Producto A,001,1200\nProducto B,002,800,650';
+const defaultInput = 'Producto A, COD-001, 1200\nProducto B, COD-002, 800, 650';
 const TEMPLATE_SIZES = {
   standard: { widthMm: 80, heightMm: 50, label: '80 × 50 mm' },
   compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
@@ -80,6 +80,7 @@ function App() {
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [showPrintSuccessModal, setShowPrintSuccessModal] = useState(false);
   const [copySuccessMessage, setCopySuccessMessage] = useState<string | null>(null);
+  const [isRecordsExpanded, setIsRecordsExpanded] = useState(false);
 
   const validRecords = useMemo(() => records.filter((record) => record.validationState === 'valid'), [records]);
   const selectedPaperProfile = useMemo(
@@ -127,42 +128,40 @@ function App() {
     return () => window.clearTimeout(timeoutId);
   }, [showPrintSuccessModal]);
 
-  const handleParse = async () => {
-    setLoading(true);
-    setShowPrintSuccessModal(false);
-    setCopySuccessMessage(null);
-    setMessage('Interpretando datos...');
-    try {
-      const response = await fetch(buildApiUrl('/api/parse'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: inputText }),
-      });
-      const data = await readJsonResponse<{ records: ParsedRecord[]; errors: string[] }>(response);
-      setRecords(data.records ?? []);
-      setErrors(data.errors ?? []);
-      setPreviewLabels([]);
-      setPrintStatus(null);
-      setMessage(data.records?.length ? 'Datos interpretados correctamente.' : 'No se encontraron registros.');
-    } catch (error) {
-      setMessage('No se pudieron interpretar los datos.');
-      setErrors([error instanceof Error ? error.message : 'Verifica que el servidor de NestJS esté en ejecución.']);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handlePreview = async () => {
     setLoading(true);
     setShowPrintSuccessModal(false);
     setCopySuccessMessage(null);
-    setMessage('Generando vista previa...');
+    setMessage('Interpretando datos y generando vista previa...');
     try {
-      const response = await fetch(buildApiUrl('/api/preview'), {
+      const parseResponse = await fetch(buildApiUrl('/api/parse'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: inputText }),
+      });
+      const parseData = await readJsonResponse<{ records: ParsedRecord[]; errors: string[] }>(parseResponse);
+      const nextRecords = parseData.records ?? [];
+      setRecords(nextRecords);
+      setErrors(parseData.errors ?? []);
+
+      if (nextRecords.length === 0) {
+        setPreviewLabels([]);
+        setMessage('No se encontraron registros para generar la vista previa.');
+        return;
+      }
+
+      const validRecordsForPreview = nextRecords.filter((record) => record.validationState === 'valid');
+      if (validRecordsForPreview.length === 0) {
+        setPreviewLabels([]);
+        setMessage('Hay registros con errores; corrige los datos antes de previsualizar.');
+        return;
+      }
+
+      const previewResponse = await fetch(buildApiUrl('/api/preview'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          records: records.map((record) => ({
+          records: validRecordsForPreview.map((record) => ({
             ...record,
             price: Number(record.price),
             discountPrice: record.discountPrice ? Number(record.discountPrice) : null,
@@ -172,12 +171,12 @@ function App() {
           copies,
         }),
       });
-      const data = await readJsonResponse<{ labels: PreviewLabel[] }>(response);
-      setPreviewLabels(data.labels ?? []);
+      const previewData = await readJsonResponse<{ labels: PreviewLabel[] }>(previewResponse);
+      setPreviewLabels(previewData.labels ?? []);
       setPrintStatus(null);
-      setMessage('Vista previa lista para revisar.');
+      setMessage('Datos interpretados y vista previa generada correctamente.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo generar la vista previa.');
+      setMessage(error instanceof Error ? error.message : 'No se pudo interpretar ni generar la vista previa.');
     } finally {
       setLoading(false);
     }
@@ -306,14 +305,16 @@ function App() {
           <div className="panel-header">
             <div>
               <h2>1. Pega la información</h2>
-              <p>Usa un formato simple por fila: nombre, código, precio y descuento opcional. Cada producto va en un enter.</p>
+              <p>Usa un formato simple por fila: nombre, código, precio y descuento opcional. Ejemplo: Producto A, COD-001, 1200.</p>
             </div>
-            <button onClick={handleParse} disabled={loading}>
-              {loading ? 'Procesando...' : 'Interpretar datos'}
-            </button>
           </div>
 
-          <textarea value={inputText} onChange={(event) => setInputText(event.target.value)} rows={10} />
+          <textarea
+            value={inputText}
+            onChange={(event) => setInputText(event.target.value)}
+            rows={10}
+            placeholder={'Producto A, COD-001, 1200\nProducto B, COD-002, 800, 650'}
+          />
 
           <div className="status-row">
             <span className="status-pill">{message}</span>
@@ -513,10 +514,19 @@ function App() {
             </div>
           </div>
 
-          <div className="record-table-wrapper">
+          <div className={`record-table-wrapper ${isRecordsExpanded ? 'expanded' : 'compact'}`}>
+            <div className="record-table-toolbar">
+              <span>
+                {records.length} registros · {validRecords.length} OK
+              </span>
+              <button type="button" className="secondary compact-toggle" onClick={() => setIsRecordsExpanded((expanded) => !expanded)}>
+                {isRecordsExpanded ? 'Compactar' : 'Ampliar'}
+              </button>
+            </div>
+
             {records.length === 0 ? (
               <div className="empty-state">Aún no hay registros para revisar.</div>
-            ) : (
+            ) : isRecordsExpanded ? (
               <table className="record-table">
                 <thead>
                   <tr>
@@ -552,7 +562,7 @@ function App() {
                   ))}
                 </tbody>
               </table>
-            )}
+            ) : null}
           </div>
         </section>
       </main>
@@ -564,7 +574,7 @@ function App() {
             <p>Revisa y luego prepara la impresión.</p>
           </div>
           <div className="action-buttons">
-            <button onClick={handlePreview} disabled={loading || validRecords.length === 0}>
+            <button onClick={handlePreview} disabled={loading || !inputText.trim()}>
               {loading ? 'Generando...' : 'Generar vista previa'}
             </button>
             <button onClick={handlePrint} disabled={loading || previewLabels.length === 0} className="secondary">
