@@ -45,6 +45,8 @@ const MAX_MARGIN_MM = 25;
 const DEFAULT_MARGIN_MM = 5;
 /** Margen mínimo en rollo continuo: sólo lo necesario para la zona no imprimible. */
 const CONTINUOUS_MARGIN_MM = 2;
+/** Arriba basta 1 mm: el rollo ya viene cortado justo donde empieza la impresión. */
+const CONTINUOUS_TOP_MARGIN_MM = 1;
 /**
  * Longitud de página por defecto en rollo continuo. 210 mm es el tamaño que
  * declaran la mayoría de drivers POS de 58/80 mm; hacerla coincidir evita que la
@@ -64,7 +66,7 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-58',
     orientation: 'portrait',
     columns: 1,
-    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginTopMm: CONTINUOUS_TOP_MARGIN_MM,
     marginBottomMm: CONTINUOUS_MARGIN_MM,
     marginLeftMm: CONTINUOUS_MARGIN_MM,
     marginRightMm: CONTINUOUS_MARGIN_MM,
@@ -78,7 +80,7 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-80',
     orientation: 'portrait',
     columns: 1,
-    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginTopMm: CONTINUOUS_TOP_MARGIN_MM,
     marginBottomMm: CONTINUOUS_MARGIN_MM,
     marginLeftMm: CONTINUOUS_MARGIN_MM,
     marginRightMm: CONTINUOUS_MARGIN_MM,
@@ -92,7 +94,7 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-100',
     orientation: 'portrait',
     columns: 1,
-    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginTopMm: CONTINUOUS_TOP_MARGIN_MM,
     marginBottomMm: CONTINUOUS_MARGIN_MM,
     marginLeftMm: CONTINUOUS_MARGIN_MM,
     marginRightMm: CONTINUOUS_MARGIN_MM,
@@ -106,7 +108,7 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-100',
     orientation: 'portrait',
     columns: 2,
-    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginTopMm: CONTINUOUS_TOP_MARGIN_MM,
     marginBottomMm: CONTINUOUS_MARGIN_MM,
     marginLeftMm: CONTINUOUS_MARGIN_MM,
     marginRightMm: CONTINUOUS_MARGIN_MM,
@@ -120,7 +122,7 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-100',
     orientation: 'portrait',
     columns: 3,
-    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginTopMm: CONTINUOUS_TOP_MARGIN_MM,
     marginBottomMm: CONTINUOUS_MARGIN_MM,
     marginLeftMm: CONTINUOUS_MARGIN_MM,
     marginRightMm: CONTINUOUS_MARGIN_MM,
@@ -334,7 +336,7 @@ export function buildLayoutPlan(args: {
   const pageCount = Math.max(1, Math.ceil(totalItems / itemsPerPage));
   // Con longitud fija se respeta la del driver. Si no, se deriva del contenido y
   // se redondea al milímetro superior, porque los drivers sólo aceptan enteros.
-  const paperHeightMm =
+  const requestedPageHeightMm =
     fixedPageLengthMm ??
     Math.ceil(
       settings.marginTopMm +
@@ -342,6 +344,18 @@ export function buildLayoutPlan(args: {
         labelHeightMm * rowsPerPage +
         settings.gapVerticalMm * Math.max(0, rowsPerPage - 1),
     );
+  // CSS deduce la orientación comparando las dos medidas de `@page size`: si el
+  // ancho supera al alto, la página es horizontal y el driver rota la etiqueta.
+  // En continuo se alarga la página lo justo para que siga siendo vertical.
+  const minPortraitHeightMm = Math.ceil(paperSize.widthMm) + 1;
+  const paperHeightMm =
+    isContinuous && requestedPageHeightMm < minPortraitHeightMm ? minPortraitHeightMm : requestedPageHeightMm;
+
+  if (paperHeightMm !== requestedPageHeightMm) {
+    warnings.push(
+      `La página se alargó de ${requestedPageHeightMm} a ${paperHeightMm} mm para que no salga girada: una página más ancha que alta se imprime en horizontal.`,
+    );
+  }
 
   if (isContinuous && printableHeightMm !== null && labelHeightMm > printableHeightMm) {
     warnings.push(

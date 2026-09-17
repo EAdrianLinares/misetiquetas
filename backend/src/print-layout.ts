@@ -274,7 +274,7 @@ export function buildLayoutPlan(args: {
   // Ver `frontend/src/utils/printLayout.ts`: con longitud fija se respeta la del
   // driver; si no, se deriva del contenido y se redondea hacia arriba porque los
   // drivers sólo aceptan tamaños enteros.
-  const paperHeightMm =
+  const requestedPageHeightMm =
     fixedPageLengthMm ??
     Math.ceil(
       settings.marginTopMm +
@@ -282,6 +282,19 @@ export function buildLayoutPlan(args: {
         labelHeightMm * rowsPerPage +
         settings.gapVerticalMm * Math.max(0, rowsPerPage - 1),
     );
+  // Ver `frontend/src/utils/printLayout.ts`: si el ancho supera al alto, CSS
+  // considera la página horizontal y el driver rota la etiqueta.
+  const minPortraitHeightMm = Math.ceil(paperSize.widthMm) + 1;
+  const paperHeightMm =
+    isContinuous && requestedPageHeightMm < minPortraitHeightMm
+      ? minPortraitHeightMm
+      : requestedPageHeightMm;
+
+  if (paperHeightMm !== requestedPageHeightMm) {
+    warnings.push(
+      `La página se alargó de ${requestedPageHeightMm} a ${paperHeightMm} mm para que no salga girada: una página más ancha que alta se imprime en horizontal.`,
+    );
+  }
 
   if (isContinuous && printableHeightMm !== null && labelHeightMm > printableHeightMm) {
     warnings.push(
