@@ -2,9 +2,27 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import './App.css';
 import { BarcodePreview } from './components/BarcodePreview';
-import type { PaperProfile, PaperType, PrintOrientation, PrintSettings, ParsedRecord, PreviewLabel, PrintResponse } from './types';
+import type {
+  ContinuousPageMode,
+  LabelFitMode,
+  PaperProfile,
+  PaperType,
+  PrintOrientation,
+  PrintSettings,
+  ParsedRecord,
+  PreviewLabel,
+  PrintResponse,
+} from './types';
+import { buildLabelMetrics, labelCssVars } from './utils/labelMetrics';
 import { buildPrintDocumentHtml } from './utils/printDocument';
-import { buildLayoutPlan, buildPrintSettings, paginate, PAPER_PROFILES } from './utils/printLayout';
+import {
+  buildLayoutPlan,
+  buildPrintSettings,
+  findPaperProfile,
+  paginate,
+  PAPER_PROFILES,
+  PAPER_TYPE_LABELS,
+} from './utils/printLayout';
 
 const defaultInput = 'Producto A, COD-001, 1200\nProducto B, COD-002, 800, 650';
 const TEMPLATE_SIZES = {
@@ -12,12 +30,20 @@ const TEMPLATE_SIZES = {
   compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
 } as const;
 const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
-const PAPER_TYPE_LABELS: Record<PaperType, string> = {
-  a4: 'A4',
-  letter: 'Carta',
-  'continuous-58': 'Continuo 58 mm',
-  'continuous-80': 'Continuo 80 mm',
-  'continuous-100': 'Continuo 100 mm',
+const DEFAULT_PAPER_PROFILE_ID = 'continuous-58-default';
+const DEFAULT_PAGE_LENGTH_MM = 210;
+const PX_PER_MM = 96 / 25.4;
+/** Ancho de referencia para encoger la hoja en pantalla sin deformarla. */
+const PREVIEW_MAX_WIDTH_PX = 620;
+const FIT_MODE_LABELS: Record<LabelFitMode, string> = {
+  contain: 'Ajustar si no cabe (recomendado)',
+  fill: 'Ajustar siempre al ancho del papel',
+  none: 'Tamaño exacto de la plantilla',
+};
+const PAGE_MODE_LABELS: Record<ContinuousPageMode, string> = {
+  content: 'Ajustada al contenido (menos papel)',
+  label: 'Una etiqueta por página',
+  fixed: 'Fija: igualar el papel del driver',
 };
 
 function buildApiUrl(path: '/api/parse' | '/api/preview' | '/api/print') {
@@ -35,6 +61,9 @@ function profileToSettings(profile: PaperProfile): PrintSettings {
     marginRightMm: profile.marginRightMm,
     gapHorizontalMm: profile.gapHorizontalMm,
     gapVerticalMm: profile.gapVerticalMm,
+    labelFitMode: profile.labelFitMode ?? 'contain',
+    continuousPageMode: profile.continuousPageMode ?? 'content',
+    pageLengthMm: profile.pageLengthMm ?? DEFAULT_PAGE_LENGTH_MM,
     allowZeroMarginOnContinuous: false,
   };
 }
@@ -71,8 +100,19 @@ function App() {
   const [template, setTemplate] = useState('standard');
   const [codeType, setCodeType] = useState('barcode');
   const [copies, setCopies] = useState(2);
-  const [paperProfileId, setPaperProfileId] = useState('continuous-58-default');
-  const [customPrintSettings, setCustomPrintSettings] = useState<PrintSettings>(profileToSettings(PAPER_PROFILES.find((profile) => profile.id === 'custom') ?? PAPER_PROFILES[0]));
+  const [paperProfileId, setPaperProfileId] = useState(DEFAULT_PAPER_PROFILE_ID);
+  const [customPrintSettings, setCustomPrintSettings] = useState<PrintSettings>(
+    profileToSettings(findPaperProfile('custom')),
+  );
+  const [labelFitMode, setLabelFitMode] = useState<LabelFitMode>(
+    findPaperProfile(DEFAULT_PAPER_PROFILE_ID).labelFitMode ?? 'contain',
+  );
+  const [continuousPageMode, setContinuousPageMode] = useState<ContinuousPageMode>(
+    findPaperProfile(DEFAULT_PAPER_PROFILE_ID).continuousPageMode ?? 'content',
+  );
+  const [pageLengthMm, setPageLengthMm] = useState(
+    findPaperProfile(DEFAULT_PAPER_PROFILE_ID).pageLengthMm ?? DEFAULT_PAGE_LENGTH_MM,
+  );
   const [allowZeroMarginOnContinuous, setAllowZeroMarginOnContinuous] = useState(false);
   const [previewLabels, setPreviewLabels] = useState<PreviewLabel[]>([]);
   const [loading, setLoading] = useState(false);
@@ -83,37 +123,59 @@ function App() {
   const [isRecordsExpanded, setIsRecordsExpanded] = useState(false);
 
   const validRecords = useMemo(() => records.filter((record) => record.validationState === 'valid'), [records]);
-  const selectedPaperProfile = useMemo(
-    () => PAPER_PROFILES.find((profile) => profile.id === paperProfileId) ?? PAPER_PROFILES[0],
-    [paperProfileId],
-  );
+  const selectedPaperProfile = useMemo(() => findPaperProfile(paperProfileId), [paperProfileId]);
   const isCustomPaperProfile = selectedPaperProfile.isCustom === true;
-  const printSettings = useMemo(
-    () =>
-      buildPrintSettings({
+  const printSettings = useMemo<PrintSettings>(
+    () => ({
+      ...buildPrintSettings({
         profile: selectedPaperProfile,
         customSettings: isCustomPaperProfile ? customPrintSettings : undefined,
         allowZeroMarginOnContinuous,
       }),
-    [allowZeroMarginOnContinuous, customPrintSettings, isCustomPaperProfile, selectedPaperProfile],
+      labelFitMode,
+      continuousPageMode,
+      pageLengthMm,
+    }),
+    [
+      allowZeroMarginOnContinuous,
+      continuousPageMode,
+      customPrintSettings,
+      isCustomPaperProfile,
+      labelFitMode,
+      pageLengthMm,
+      selectedPaperProfile,
+    ],
   );
-  const previewLayout = useMemo(() => {
-    const firstLabel = previewLabels[0];
-    if (!firstLabel) {
-      return null;
-    }
-
-    return buildLayoutPlan({
-      labelWidthMm: firstLabel.templateWidthMm,
-      labelHeightMm: firstLabel.templateHeightMm,
-      totalItems: previewLabels.length,
-      settings: printSettings,
-    });
-  }, [previewLabels, printSettings]);
+  // La plantilla define el tamaño pedido; el plan decide con qué tamaño cabe en el papel.
+  const templateSize = TEMPLATE_SIZES[template as keyof typeof TEMPLATE_SIZES] ?? TEMPLATE_SIZES.standard;
+  const previewLayout = useMemo(
+    () =>
+      buildLayoutPlan({
+        labelWidthMm: previewLabels[0]?.templateWidthMm ?? templateSize.widthMm,
+        labelHeightMm: previewLabels[0]?.templateHeightMm ?? templateSize.heightMm,
+        totalItems: Math.max(1, previewLabels.length),
+        settings: printSettings,
+      }),
+    [previewLabels, printSettings, templateSize.heightMm, templateSize.widthMm],
+  );
+  const labelMetrics = useMemo(
+    () => buildLabelMetrics({ widthMm: previewLayout.labelWidthMm, heightMm: previewLayout.labelHeightMm }),
+    [previewLayout.labelHeightMm, previewLayout.labelWidthMm],
+  );
   const previewPages = useMemo(
-    () => (previewLayout ? paginate(previewLabels, previewLayout.itemsPerPage) : []),
-    [previewLabels, previewLayout],
+    () => paginate(previewLabels, previewLayout.itemsPerPage),
+    [previewLabels, previewLayout.itemsPerPage],
   );
+  const sheetStyle = useMemo(() => {
+    const zoom = Math.min(1, PREVIEW_MAX_WIDTH_PX / (previewLayout.paperWidthMm * PX_PER_MM));
+    return {
+      '--sheet-width-mm': `${previewLayout.paperWidthMm}mm`,
+      '--sheet-height-mm': `${previewLayout.paperHeightMm}mm`,
+      '--sheet-padding': `${printSettings.marginTopMm}mm ${printSettings.marginRightMm}mm ${printSettings.marginBottomMm}mm ${printSettings.marginLeftMm}mm`,
+      '--sheet-zoom': `${Math.round(zoom * 1000) / 1000}`,
+    } as CSSProperties;
+  }, [previewLayout.paperHeightMm, previewLayout.paperWidthMm, printSettings]);
+  const labelStyle = useMemo(() => labelCssVars(labelMetrics) as CSSProperties, [labelMetrics]);
 
   useEffect(() => {
     if (!showPrintSuccessModal) {
@@ -268,16 +330,18 @@ function App() {
   const handleProfileChange = (nextProfileId: string) => {
     setPaperProfileId(nextProfileId);
 
-    const nextProfile = PAPER_PROFILES.find((profile) => profile.id === nextProfileId);
-    setAllowZeroMarginOnContinuous(nextProfile ? profileNeedsZeroMargins(nextProfile) : false);
+    const nextProfile = findPaperProfile(nextProfileId);
+    setAllowZeroMarginOnContinuous(profileNeedsZeroMargins(nextProfile));
+    setLabelFitMode(nextProfile.labelFitMode ?? 'contain');
+    setContinuousPageMode(nextProfile.continuousPageMode ?? 'content');
+    setPageLengthMm(nextProfile.pageLengthMm ?? DEFAULT_PAGE_LENGTH_MM);
 
-    if (nextProfile?.isCustom) {
+    if (nextProfile.isCustom) {
       return;
     }
 
-    if (nextProfile) {
-      setCustomPrintSettings(profileToSettings(nextProfile));
-    }
+    // El perfil personalizado arranca desde los valores del perfil elegido.
+    setCustomPrintSettings(profileToSettings(nextProfile));
   };
 
   const updateCustomPrintSettings = <K extends keyof PrintSettings>(field: K, value: PrintSettings[K]) => {
@@ -383,6 +447,55 @@ function App() {
                     ))}
                   </select>
                 </label>
+
+                <label>
+                  Ajuste de la etiqueta
+                  <select
+                    value={labelFitMode}
+                    onChange={(event) => setLabelFitMode(event.target.value as LabelFitMode)}
+                  >
+                    <option value="contain">{FIT_MODE_LABELS.contain}</option>
+                    <option value="fill">{FIT_MODE_LABELS.fill}</option>
+                    <option value="none">{FIT_MODE_LABELS.none}</option>
+                  </select>
+                </label>
+
+                {printSettings.paperType.startsWith('continuous') && (
+                  <>
+                    <label>
+                      Longitud de página
+                      <select
+                        value={continuousPageMode}
+                        onChange={(event) =>
+                          setContinuousPageMode(event.target.value as ContinuousPageMode)
+                        }
+                      >
+                        <option value="content">{PAGE_MODE_LABELS.content}</option>
+                        <option value="label">{PAGE_MODE_LABELS.label}</option>
+                        <option value="fixed">{PAGE_MODE_LABELS.fixed}</option>
+                      </select>
+                      <small>
+                        La impresora avanza una página entera por trabajo. «Ajustada al contenido» es la que menos
+                        papel gasta.
+                      </small>
+                    </label>
+
+                    {continuousPageMode === 'fixed' && (
+                      <label>
+                        Longitud fija (mm)
+                        <input
+                          type="number"
+                          min="10"
+                          max="1200"
+                          step="1"
+                          value={pageLengthMm}
+                          onChange={(event) => setPageLengthMm(Number(event.target.value))}
+                        />
+                        <small>El tamaño que declara el driver (Chrome: Más ajustes → Tamaño del papel).</small>
+                      </label>
+                    )}
+                  </>
+                )}
 
                 {isCustomPaperProfile ? (
                   <>
@@ -501,7 +614,7 @@ function App() {
                 ) : null}
               </div>
 
-              {printSettings.paperType.startsWith('continuous') && (
+              {isCustomPaperProfile && printSettings.paperType.startsWith('continuous') && (
                 <label className="checkbox-row">
                   <input
                     type="checkbox"
@@ -510,6 +623,20 @@ function App() {
                   />
                   Permitir márgenes de 0mm en continuo
                 </label>
+              )}
+
+              <p className="layout-summary">
+                {PAPER_TYPE_LABELS[printSettings.paperType]} · área imprimible {previewLayout.printableWidthMm} mm ·
+                etiqueta {previewLayout.labelWidthMm} × {previewLayout.labelHeightMm} mm
+                {previewLayout.labelScale !== 1 ? ` (${Math.round(previewLayout.labelScale * 100)}% de la plantilla)` : ''}
+              </p>
+
+              {previewLayout.warnings.length > 0 && (
+                <div className="fit-notice">
+                  {previewLayout.warnings.map((warning) => (
+                    <span key={warning}>{warning}</span>
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -585,53 +712,51 @@ function App() {
 
         {printStatus && <div className="success-box">{printStatus}</div>}
 
-        {previewLayout && (
-          <p className="layout-summary">
-            Layout: {previewLayout.columns} columna(s) · {previewLayout.rowsPerPage} fila(s)/página · {previewLayout.pageCount} página(s)
-          </p>
-        )}
+        <p className="layout-summary">
+          Papel {previewLayout.paperWidthMm} × {previewLayout.paperHeightMm} mm · {previewLayout.columns} columna(s) ·{' '}
+          {previewLayout.rowsPerPage} fila(s)/página · {previewLayout.pageCount} página(s)
+          {previewLayout.isContinuous ? ' · rollo continuo: una fila por avance' : ''}
+        </p>
         <div className="preview-pages">
           {previewPages.map((pageLabels, pageIndex) => (
             <section key={`preview-page-${pageIndex + 1}`} className="preview-page">
               <p className="preview-page-title">Página {pageIndex + 1}</p>
-              <div
-                className="preview-grid"
-                style={
-                  previewLayout
-                    ? ({
-                        gridTemplateColumns: `repeat(${previewLayout.columns}, minmax(0, 1fr))`,
-                        columnGap: `${printSettings.gapHorizontalMm}mm`,
-                        rowGap: `${printSettings.gapVerticalMm}mm`,
-                        justifyItems: previewLayout.columns === 1 ? 'center' : 'start',
-                      } as CSSProperties)
-                    : undefined
-                }
-              >
-                {pageLabels.map((label) => (
-                  <article
-                    key={label.id}
-                    className={`label-card ${label.codeType === 'qr' ? 'qr-mode' : ''} ${label.template === 'compact' ? 'compact-mode' : 'standard-mode'}`}
-                    style={
-                      {
-                        '--label-width-mm': `${label.templateWidthMm}mm`,
-                        '--label-height-mm': `${label.templateHeightMm}mm`,
-                      } as CSSProperties
-                    }
-                  >
-                    <p className="label-name">{label.name}</p>
-                    <div className="barcode-wrap">
-                      <BarcodePreview value={label.code} codeType={label.codeType} template={label.template} />
-                    </div>
-                    <p className="label-price-row">
-                      <span className={label.discountPrice !== null ? 'label-price-strike' : 'label-price-current'}>
-                        {label.price.toLocaleString('es-CO')}
-                      </span>
-                      {label.discountPrice !== null ? (
-                        <span className="label-discount-current">{label.discountPrice.toLocaleString('es-CO')}</span>
-                      ) : null}
-                    </p>
-                  </article>
-                ))}
+              <div className="preview-sheet" style={sheetStyle}>
+                <div
+                  className="preview-grid"
+                  style={
+                    {
+                      gridTemplateColumns: `repeat(${previewLayout.columns}, minmax(0, 1fr))`,
+                      columnGap: `${printSettings.gapHorizontalMm}mm`,
+                      rowGap: `${printSettings.gapVerticalMm}mm`,
+                    } as CSSProperties
+                  }
+                >
+                  {pageLabels.map((label) => (
+                    <article
+                      key={label.id}
+                      className={`label-card ${label.codeType === 'qr' ? 'qr-mode' : 'barcode-mode'}`}
+                      style={labelStyle}
+                    >
+                      <p className="label-name">{label.name}</p>
+                      <div className="barcode-wrap">
+                        <BarcodePreview
+                          value={label.code}
+                          codeType={label.codeType}
+                          aspectRatio={labelMetrics.codeAspectRatio}
+                        />
+                      </div>
+                      <p className="label-price-row">
+                        <span className={label.discountPrice !== null ? 'label-price-strike' : 'label-price-current'}>
+                          {label.price.toLocaleString('es-CO')}
+                        </span>
+                        {label.discountPrice !== null ? (
+                          <span className="label-discount-current">{label.discountPrice.toLocaleString('es-CO')}</span>
+                        ) : null}
+                      </p>
+                    </article>
+                  ))}
+                </div>
               </div>
             </section>
           ))}

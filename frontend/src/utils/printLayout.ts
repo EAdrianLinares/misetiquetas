@@ -1,12 +1,25 @@
-import type { PaperProfile, PaperType, PrintSettings } from '../types';
+import type { ContinuousPageMode, LabelFitMode, PaperProfile, PaperType, PrintOrientation, PrintSettings } from '../types';
 
 export interface LayoutPlan {
   paperWidthMm: number;
   paperHeightMm: number;
+  printableWidthMm: number;
+  printableHeightMm: number | null;
+  /** Ancho disponible para una etiqueta dentro de su columna. */
+  slotWidthMm: number;
   columns: number;
   rowsPerPage: number;
   itemsPerPage: number;
   pageCount: number;
+  /** Tamaño real de impresión de cada etiqueta. */
+  labelWidthMm: number;
+  labelHeightMm: number;
+  /** Tamaño pedido por la plantilla. */
+  requestedLabelWidthMm: number;
+  requestedLabelHeightMm: number;
+  labelScale: number;
+  isContinuous: boolean;
+  warnings: string[];
 }
 
 const PAPER_SIZE_MM: Record<PaperType, { widthMm: number; heightMm: number | null }> = {
@@ -17,6 +30,33 @@ const PAPER_SIZE_MM: Record<PaperType, { widthMm: number; heightMm: number | nul
   'continuous-100': { widthMm: 100, heightMm: null },
 };
 
+export const PAPER_TYPE_LABELS: Record<PaperType, string> = {
+  a4: 'A4',
+  letter: 'Carta',
+  'continuous-58': 'Continuo 58 mm',
+  'continuous-80': 'Continuo 80 mm',
+  'continuous-100': 'Continuo 100 mm',
+};
+
+const MAX_COLUMNS = 4;
+/** Por debajo de esto una etiqueta deja de ser legible; se reduce el número de columnas. */
+const MIN_SLOT_WIDTH_MM = 18;
+const MAX_MARGIN_MM = 25;
+const DEFAULT_MARGIN_MM = 5;
+/** Margen mínimo en rollo continuo: sólo lo necesario para la zona no imprimible. */
+const CONTINUOUS_MARGIN_MM = 2;
+/**
+ * Longitud de página por defecto en rollo continuo. 210 mm es el tamaño que
+ * declaran la mayoría de drivers POS de 58/80 mm; hacerla coincidir evita que la
+ * impresora avance una página entera por etiqueta.
+ */
+const DEFAULT_CONTINUOUS_PAGE_LENGTH_MM = 210;
+const MAX_PAGE_LENGTH_MM = 1200;
+
+export function isContinuousPaper(paperType: PaperType) {
+  return paperType.startsWith('continuous');
+}
+
 export const PAPER_PROFILES: PaperProfile[] = [
   {
     id: 'continuous-58-default',
@@ -24,12 +64,13 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-58',
     orientation: 'portrait',
     columns: 1,
-    marginTopMm: 5,
-    marginBottomMm: 5,
-    marginLeftMm: 5,
-    marginRightMm: 5,
-    gapHorizontalMm: 2,
+    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginBottomMm: CONTINUOUS_MARGIN_MM,
+    marginLeftMm: CONTINUOUS_MARGIN_MM,
+    marginRightMm: CONTINUOUS_MARGIN_MM,
+    gapHorizontalMm: 0,
     gapVerticalMm: 2,
+    labelFitMode: 'contain',
   },
   {
     id: 'continuous-80-default',
@@ -37,12 +78,13 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-80',
     orientation: 'portrait',
     columns: 1,
-    marginTopMm: 5,
-    marginBottomMm: 5,
-    marginLeftMm: 5,
-    marginRightMm: 5,
-    gapHorizontalMm: 2,
+    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginBottomMm: CONTINUOUS_MARGIN_MM,
+    marginLeftMm: CONTINUOUS_MARGIN_MM,
+    marginRightMm: CONTINUOUS_MARGIN_MM,
+    gapHorizontalMm: 0,
     gapVerticalMm: 2,
+    labelFitMode: 'contain',
   },
   {
     id: 'continuous-100-default',
@@ -50,12 +92,13 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-100',
     orientation: 'portrait',
     columns: 1,
-    marginTopMm: 5,
-    marginBottomMm: 5,
-    marginLeftMm: 5,
-    marginRightMm: 5,
-    gapHorizontalMm: 2,
+    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginBottomMm: CONTINUOUS_MARGIN_MM,
+    marginLeftMm: CONTINUOUS_MARGIN_MM,
+    marginRightMm: CONTINUOUS_MARGIN_MM,
+    gapHorizontalMm: 0,
     gapVerticalMm: 2,
+    labelFitMode: 'contain',
   },
   {
     id: 'continuous-100-2-columns',
@@ -63,60 +106,152 @@ export const PAPER_PROFILES: PaperProfile[] = [
     paperType: 'continuous-100',
     orientation: 'portrait',
     columns: 2,
-    marginTopMm: 0,
-    marginBottomMm: 0,
-    marginLeftMm: 0,
-    marginRightMm: 0,
-    gapHorizontalMm: 0,
+    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginBottomMm: CONTINUOUS_MARGIN_MM,
+    marginLeftMm: CONTINUOUS_MARGIN_MM,
+    marginRightMm: CONTINUOUS_MARGIN_MM,
+    gapHorizontalMm: 2,
     gapVerticalMm: 2,
+    labelFitMode: 'contain',
+  },
+  {
+    id: 'continuous-100-3-columns',
+    name: 'Continuo 100 mm - 3 columnas',
+    paperType: 'continuous-100',
+    orientation: 'portrait',
+    columns: 3,
+    marginTopMm: CONTINUOUS_MARGIN_MM,
+    marginBottomMm: CONTINUOUS_MARGIN_MM,
+    marginLeftMm: CONTINUOUS_MARGIN_MM,
+    marginRightMm: CONTINUOUS_MARGIN_MM,
+    gapHorizontalMm: 2,
+    gapVerticalMm: 2,
+    labelFitMode: 'contain',
+  },
+  {
+    id: 'letter-default',
+    name: 'Carta',
+    paperType: 'letter',
+    orientation: 'portrait',
+    columns: 2,
+    marginTopMm: 10,
+    marginBottomMm: 10,
+    marginLeftMm: 10,
+    marginRightMm: 10,
+    gapHorizontalMm: 3,
+    gapVerticalMm: 3,
+    labelFitMode: 'contain',
+  },
+  {
+    id: 'a4-default',
+    name: 'A4',
+    paperType: 'a4',
+    orientation: 'portrait',
+    columns: 2,
+    marginTopMm: 10,
+    marginBottomMm: 10,
+    marginLeftMm: 10,
+    marginRightMm: 10,
+    gapHorizontalMm: 3,
+    gapVerticalMm: 3,
+    labelFitMode: 'contain',
+  },
+  {
+    id: 'custom',
+    name: 'Personalizado',
+    paperType: 'continuous-80',
+    orientation: 'portrait',
+    columns: 1,
+    marginTopMm: DEFAULT_MARGIN_MM,
+    marginBottomMm: DEFAULT_MARGIN_MM,
+    marginLeftMm: DEFAULT_MARGIN_MM,
+    marginRightMm: DEFAULT_MARGIN_MM,
+    gapHorizontalMm: 2,
+    gapVerticalMm: 2,
+    labelFitMode: 'contain',
+    isCustom: true,
   },
 ];
 
+export function findPaperProfile(profileId: string) {
+  return PAPER_PROFILES.find((profile) => profile.id === profileId) ?? PAPER_PROFILES[0];
+}
+
+/**
+ * Resuelve los valores efectivos de impresión.
+ *
+ * Los perfiles predefinidos son de confianza: sus márgenes se respetan tal cual.
+ * Sólo el perfil "Personalizado" aplica la regla de margen mínimo de 5 mm
+ * (0 mm únicamente en papel continuo cuando el usuario lo habilita).
+ */
 export function buildPrintSettings(input: {
   profile: PaperProfile;
   customSettings?: Partial<PrintSettings>;
   allowZeroMarginOnContinuous: boolean;
 }): PrintSettings {
   const base = input.profile;
-  const custom = input.customSettings ?? {};
-  const paperType = base.isCustom ? custom.paperType ?? base.paperType : base.paperType;
-  const orientation = base.isCustom ? custom.orientation ?? base.orientation : base.orientation;
-  const columnsSource = base.isCustom ? custom.columns ?? base.columns : base.columns;
-  const isContinuous = paperType !== 'a4' && paperType !== 'letter';
-  const minMargin = isContinuous && input.allowZeroMarginOnContinuous ? 0 : 5;
+  const isCustom = base.isCustom === true;
+  const custom = isCustom ? input.customSettings ?? {} : {};
+  const pick = <K extends keyof PrintSettings & keyof PaperProfile>(key: K) =>
+    (custom[key] as PaperProfile[K] | undefined) ?? base[key];
+
+  const paperType = (pick('paperType') ?? 'a4') as PaperType;
+  const isContinuous = isContinuousPaper(paperType);
+  const minMargin = isCustom ? (isContinuous && input.allowZeroMarginOnContinuous ? 0 : DEFAULT_MARGIN_MM) : 0;
+  const margin = (key: 'marginTopMm' | 'marginBottomMm' | 'marginLeftMm' | 'marginRightMm') =>
+    clampNumber(pick(key), minMargin, MAX_MARGIN_MM, Math.max(minMargin, DEFAULT_MARGIN_MM));
 
   return {
     paperType,
-    orientation,
-    columns: clampNumber(columnsSource, 1, 4, 1),
-    marginTopMm: clampNumber(base.isCustom ? custom.marginTopMm ?? base.marginTopMm : base.marginTopMm, minMargin, 25, 5),
-    marginBottomMm: clampNumber(
-      base.isCustom ? custom.marginBottomMm ?? base.marginBottomMm : base.marginBottomMm,
-      minMargin,
-      25,
-      5,
+    orientation: (pick('orientation') ?? 'portrait') as PrintOrientation,
+    columns: clampNumber(pick('columns'), 1, MAX_COLUMNS, 1),
+    marginTopMm: margin('marginTopMm'),
+    marginBottomMm: margin('marginBottomMm'),
+    marginLeftMm: margin('marginLeftMm'),
+    marginRightMm: margin('marginRightMm'),
+    gapHorizontalMm: clampNumber(pick('gapHorizontalMm'), 0, 20, 2),
+    gapVerticalMm: clampNumber(pick('gapVerticalMm'), 0, 20, 2),
+    labelFitMode: normalizeFitMode(custom.labelFitMode ?? base.labelFitMode),
+    continuousPageMode: normalizePageMode(
+      isContinuous ? custom.continuousPageMode ?? base.continuousPageMode : 'content',
     ),
-    marginLeftMm: clampNumber(base.isCustom ? custom.marginLeftMm ?? base.marginLeftMm : base.marginLeftMm, minMargin, 25, 5),
-    marginRightMm: clampNumber(
-      base.isCustom ? custom.marginRightMm ?? base.marginRightMm : base.marginRightMm,
-      minMargin,
-      25,
-      5,
-    ),
-    gapHorizontalMm: clampNumber(
-      base.isCustom ? custom.gapHorizontalMm ?? base.gapHorizontalMm : base.gapHorizontalMm,
-      0,
-      20,
-      2,
-    ),
-    gapVerticalMm: clampNumber(
-      base.isCustom ? custom.gapVerticalMm ?? base.gapVerticalMm : base.gapVerticalMm,
-      0,
-      20,
-      2,
-    ),
+    pageLengthMm: normalizePageLengthMm(custom.pageLengthMm ?? base.pageLengthMm),
     allowZeroMarginOnContinuous: input.allowZeroMarginOnContinuous,
   };
+}
+
+/** Normaliza ajustes que ya vienen resueltos (por ejemplo, desde el backend) sin re-aplicar reglas de perfil. */
+export function normalizePrintSettings(raw: Partial<PrintSettings>): PrintSettings {
+  const paperType = (raw.paperType ?? 'a4') as PaperType;
+  return {
+    paperType,
+    orientation: raw.orientation === 'landscape' ? 'landscape' : 'portrait',
+    columns: clampNumber(raw.columns, 1, MAX_COLUMNS, 1),
+    marginTopMm: clampNumber(raw.marginTopMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
+    marginBottomMm: clampNumber(raw.marginBottomMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
+    marginLeftMm: clampNumber(raw.marginLeftMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
+    marginRightMm: clampNumber(raw.marginRightMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
+    gapHorizontalMm: clampNumber(raw.gapHorizontalMm, 0, 20, 2),
+    gapVerticalMm: clampNumber(raw.gapVerticalMm, 0, 20, 2),
+    labelFitMode: normalizeFitMode(raw.labelFitMode),
+    continuousPageMode: normalizePageMode(
+      isContinuousPaper(paperType) ? raw.continuousPageMode : 'content',
+    ),
+    pageLengthMm: normalizePageLengthMm(raw.pageLengthMm),
+    allowZeroMarginOnContinuous: raw.allowZeroMarginOnContinuous === true,
+  };
+}
+
+function normalizePageMode(value: ContinuousPageMode | undefined): ContinuousPageMode {
+  return value === 'label' || value === 'fixed' ? value : 'content';
+}
+
+function normalizePageLengthMm(value: number | undefined) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return DEFAULT_CONTINUOUS_PAGE_LENGTH_MM;
+  }
+  return Math.min(Math.round(numericValue), MAX_PAGE_LENGTH_MM);
 }
 
 export function buildLayoutPlan(args: {
@@ -125,50 +260,170 @@ export function buildLayoutPlan(args: {
   totalItems: number;
   settings: PrintSettings;
 }): LayoutPlan {
-  const paperSize = resolvePaperSize(args.settings.paperType, args.settings.orientation);
-  const maxColumns = calculateMaxColumns({
-    paperWidthMm: paperSize.widthMm,
-    marginLeftMm: args.settings.marginLeftMm,
-    marginRightMm: args.settings.marginRightMm,
-    gapHorizontalMm: args.settings.gapHorizontalMm,
-    labelWidthMm: args.labelWidthMm,
+  const settings = args.settings;
+  const paperSize = resolvePaperSize(settings.paperType, settings.orientation);
+  const isContinuous = isContinuousPaper(settings.paperType) || paperSize.heightMm === null;
+  const warnings: string[] = [];
+
+  const requestedLabelWidthMm = Math.max(1, args.labelWidthMm);
+  const requestedLabelHeightMm = Math.max(1, args.labelHeightMm);
+  const printableWidthMm = roundMm(Math.max(0, paperSize.widthMm - settings.marginLeftMm - settings.marginRightMm));
+  // En papel de hoja la altura la fija el formato. En continuo la decide el modo
+  // de página: 'fixed' iguala el papel del driver y el resto se deriva del
+  // contenido, que es lo que menos papel gasta.
+  const fixedPageLengthMm =
+    paperSize.heightMm ??
+    (settings.continuousPageMode === 'fixed' && settings.pageLengthMm > 0 ? settings.pageLengthMm : null);
+  const printableHeightMm =
+    fixedPageLengthMm === null
+      ? null
+      : roundMm(Math.max(0, fixedPageLengthMm - settings.marginTopMm - settings.marginBottomMm));
+
+  if (printableWidthMm <= 0) {
+    warnings.push('Los márgenes laterales no dejan espacio imprimible; revisa la configuración del papel.');
+  }
+
+  const requestedColumns = clampNumber(settings.columns, 1, MAX_COLUMNS, 1);
+  let columns = requestedColumns;
+  let slotWidthMm = calculateSlotWidthMm(printableWidthMm, columns, settings.gapHorizontalMm);
+  while (columns > 1 && slotWidthMm < MIN_SLOT_WIDTH_MM) {
+    columns -= 1;
+    slotWidthMm = calculateSlotWidthMm(printableWidthMm, columns, settings.gapHorizontalMm);
+  }
+  if (columns !== requestedColumns) {
+    warnings.push(
+      `El papel de ${paperSize.widthMm} mm no admite ${requestedColumns} columnas; se imprimirá en ${columns}.`,
+    );
+  }
+
+  const labelScale = calculateLabelScale({
+    fitMode: settings.labelFitMode,
+    slotWidthMm,
+    printableHeightMm,
+    requestedLabelWidthMm,
+    requestedLabelHeightMm,
   });
-  const columns = Math.max(1, Math.min(args.settings.columns, maxColumns));
+  const labelWidthMm = floorMm(requestedLabelWidthMm * labelScale);
+  const labelHeightMm = floorMm(requestedLabelHeightMm * labelScale);
+
+  if (settings.labelFitMode === 'none' && requestedLabelWidthMm > slotWidthMm + 0.01) {
+    warnings.push(
+      `La etiqueta de ${roundMm(requestedLabelWidthMm)} mm no cabe en los ${roundMm(slotWidthMm)} mm disponibles y se recortará al imprimir.`,
+    );
+  } else if (labelScale < 0.999) {
+    warnings.push(
+      `La etiqueta se redujo a ${labelWidthMm} × ${labelHeightMm} mm (${Math.round(labelScale * 100)}%) para caber en ${PAPER_TYPE_LABELS[settings.paperType]}.`,
+    );
+  } else if (labelScale > 1.001) {
+    warnings.push(
+      `La etiqueta se amplió a ${labelWidthMm} × ${labelHeightMm} mm (${Math.round(labelScale * 100)}%) para aprovechar el ancho del papel.`,
+    );
+  }
+
+  const totalItems = Math.max(0, args.totalItems);
   const rowsPerPage = calculateRowsPerPage({
-    paperType: args.settings.paperType,
-    paperHeightMm: paperSize.heightMm,
-    marginTopMm: args.settings.marginTopMm,
-    marginBottomMm: args.settings.marginBottomMm,
-    gapVerticalMm: args.settings.gapVerticalMm,
-    labelHeightMm: args.labelHeightMm,
-    columns,
-    totalItems: args.totalItems,
+    printableHeightMm,
+    gapVerticalMm: settings.gapVerticalMm,
+    labelHeightMm,
+    // Sin longitud fija, 'content' agrupa todo el lote en una página y 'label'
+    // deja una fila por página.
+    contentRows:
+      settings.continuousPageMode === 'content' ? Math.ceil(Math.max(1, totalItems) / columns) : 1,
   });
   const itemsPerPage = Math.max(1, columns * rowsPerPage);
-  const pageCount = Math.max(1, Math.ceil(args.totalItems / itemsPerPage));
+  const pageCount = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  // Con longitud fija se respeta la del driver. Si no, se deriva del contenido y
+  // se redondea al milímetro superior, porque los drivers sólo aceptan enteros.
   const paperHeightMm =
-    paperSize.heightMm === null
-      ? buildContinuousHeightMm({
-          marginTopMm: args.settings.marginTopMm,
-          marginBottomMm: args.settings.marginBottomMm,
-          gapVerticalMm: args.settings.gapVerticalMm,
-          labelHeightMm: args.labelHeightMm,
-          rows: rowsPerPage,
-        })
-      : paperSize.heightMm;
+    fixedPageLengthMm ??
+    Math.ceil(
+      settings.marginTopMm +
+        settings.marginBottomMm +
+        labelHeightMm * rowsPerPage +
+        settings.gapVerticalMm * Math.max(0, rowsPerPage - 1),
+    );
+
+  if (isContinuous && printableHeightMm !== null && labelHeightMm > printableHeightMm) {
+    warnings.push(
+      `La etiqueta de ${labelHeightMm} mm de alto no cabe en una página de ${fixedPageLengthMm} mm; reduce los márgenes o aumenta la longitud de página.`,
+    );
+  }
 
   return {
     paperWidthMm: paperSize.widthMm,
     paperHeightMm,
+    printableWidthMm,
+    printableHeightMm,
+    slotWidthMm: roundMm(slotWidthMm),
     columns,
     rowsPerPage,
     itemsPerPage,
     pageCount,
+    labelWidthMm,
+    labelHeightMm,
+    requestedLabelWidthMm: roundMm(requestedLabelWidthMm),
+    requestedLabelHeightMm: roundMm(requestedLabelHeightMm),
+    labelScale,
+    isContinuous,
+    warnings,
   };
 }
 
-function resolvePaperSize(paperType: PaperType, orientation: 'portrait' | 'landscape') {
-  const paper = PAPER_SIZE_MM[paperType];
+function calculateSlotWidthMm(printableWidthMm: number, columns: number, gapHorizontalMm: number) {
+  const normalizedColumns = Math.max(1, columns);
+  const totalGapMm = gapHorizontalMm * (normalizedColumns - 1);
+  return Math.max(0, (printableWidthMm - totalGapMm) / normalizedColumns);
+}
+
+function calculateLabelScale(args: {
+  fitMode: LabelFitMode;
+  slotWidthMm: number;
+  printableHeightMm: number | null;
+  requestedLabelWidthMm: number;
+  requestedLabelHeightMm: number;
+}) {
+  if (args.fitMode === 'none' || args.slotWidthMm <= 0) {
+    return 1;
+  }
+
+  const widthRatio = args.slotWidthMm / args.requestedLabelWidthMm;
+  // En papel continuo el alto lo define el propio rollo, así que no limita.
+  const heightRatio =
+    args.printableHeightMm === null || args.printableHeightMm <= 0
+      ? Number.POSITIVE_INFINITY
+      : args.printableHeightMm / args.requestedLabelHeightMm;
+  const ratio = Math.min(widthRatio, heightRatio);
+
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return 1;
+  }
+
+  // Se trunca para que el redondeo nunca devuelva una etiqueta más ancha que el hueco.
+  return Math.floor((args.fitMode === 'fill' ? ratio : Math.min(1, ratio)) * 1000) / 1000;
+}
+
+function calculateRowsPerPage(args: {
+  printableHeightMm: number | null;
+  gapVerticalMm: number;
+  labelHeightMm: number;
+  contentRows: number;
+}) {
+  // Sin altura de página fija manda el contenido: el papel avanza justo lo que
+  // ocupan las etiquetas y ninguna fila queda partida.
+  if (args.printableHeightMm === null) {
+    return Math.max(1, args.contentRows);
+  }
+
+  const slotHeightMm = args.labelHeightMm + args.gapVerticalMm;
+  if (slotHeightMm <= 0) {
+    return 1;
+  }
+
+  return Math.max(1, Math.floor((args.printableHeightMm + args.gapVerticalMm) / slotHeightMm));
+}
+
+function resolvePaperSize(paperType: PaperType, orientation: PrintOrientation) {
+  const paper = PAPER_SIZE_MM[paperType] ?? PAPER_SIZE_MM.a4;
   if (paper.heightMm === null || orientation === 'portrait') {
     return paper;
   }
@@ -179,55 +434,16 @@ function resolvePaperSize(paperType: PaperType, orientation: 'portrait' | 'lands
   };
 }
 
-function calculateMaxColumns(args: {
-  paperWidthMm: number;
-  marginLeftMm: number;
-  marginRightMm: number;
-  gapHorizontalMm: number;
-  labelWidthMm: number;
-}) {
-  const contentWidthMm = Math.max(0, args.paperWidthMm - args.marginLeftMm - args.marginRightMm);
-  const slotWidthMm = args.labelWidthMm + args.gapHorizontalMm;
-  if (slotWidthMm <= 0) {
-    return 1;
-  }
-
-  return Math.max(1, Math.floor((contentWidthMm + args.gapHorizontalMm) / slotWidthMm));
+function normalizeFitMode(value: LabelFitMode | undefined): LabelFitMode {
+  return value === 'fill' || value === 'none' ? value : 'contain';
 }
 
-function calculateRowsPerPage(args: {
-  paperType: PaperType;
-  paperHeightMm: number | null;
-  marginTopMm: number;
-  marginBottomMm: number;
-  gapVerticalMm: number;
-  labelHeightMm: number;
-  columns: number;
-  totalItems: number;
-}) {
-  if (args.paperType.startsWith('continuous') || args.paperHeightMm === null) {
-    return Math.max(1, Math.ceil(args.totalItems / Math.max(1, args.columns)));
-  }
-
-  const contentHeightMm = Math.max(0, args.paperHeightMm - args.marginTopMm - args.marginBottomMm);
-  const slotHeightMm = args.labelHeightMm + args.gapVerticalMm;
-  if (slotHeightMm <= 0) {
-    return 1;
-  }
-
-  return Math.max(1, Math.floor((contentHeightMm + args.gapVerticalMm) / slotHeightMm));
+function roundMm(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
-function buildContinuousHeightMm(args: {
-  marginTopMm: number;
-  marginBottomMm: number;
-  gapVerticalMm: number;
-  labelHeightMm: number;
-  rows: number;
-}) {
-  const labelsHeightMm = args.rows * args.labelHeightMm;
-  const gapsHeightMm = Math.max(0, args.rows - 1) * args.gapVerticalMm;
-  return Number((args.marginTopMm + args.marginBottomMm + labelsHeightMm + gapsHeightMm).toFixed(2));
+function floorMm(value: number) {
+  return Math.floor(value * 100) / 100;
 }
 
 function clampNumber(value: number | undefined, min: number, max: number, fallback: number) {

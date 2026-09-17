@@ -1,4 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import {
+  buildLayoutPlan,
+  resolvePrintSettings,
+  type ContinuousPageMode,
+  type LabelFitMode,
+  type PaperType,
+  type PrintOrientation,
+  type PrintSettingsInput,
+} from './print-layout';
 
 export interface ParsedRecord {
   id: string;
@@ -23,29 +32,25 @@ export interface PreviewLabel {
   templateHeightMm: number;
 }
 
-export type PaperType =
-  'a4' | 'letter' | 'continuous-58' | 'continuous-80' | 'continuous-100';
+export type {
+  PaperType,
+  PrintOrientation,
+  LabelFitMode,
+  ContinuousPageMode,
+} from './print-layout';
 
-export type PrintOrientation = 'portrait' | 'landscape';
-
-export interface PrintSettings {
-  paperType?: PaperType;
-  orientation?: PrintOrientation;
-  columns?: number;
-  marginTopMm?: number;
-  marginBottomMm?: number;
-  marginLeftMm?: number;
-  marginRightMm?: number;
-  gapHorizontalMm?: number;
-  gapVerticalMm?: number;
-  allowZeroMarginOnContinuous?: boolean;
-}
+export type PrintSettings = PrintSettingsInput;
 
 export interface PrintDocument {
   title: string;
   template: string;
+  /** Tamaño pedido por la plantilla, antes de ajustar al papel. */
   widthMm: number;
   heightMm: number;
+  /** Tamaño real con el que se imprime cada etiqueta. */
+  effectiveWidthMm: number;
+  effectiveHeightMm: number;
+  labelScale: number;
   paperType: PaperType;
   orientation: PrintOrientation;
   marginTopMm: number;
@@ -54,11 +59,17 @@ export interface PrintDocument {
   marginRightMm: number;
   gapHorizontalMm: number;
   gapVerticalMm: number;
+  labelFitMode: LabelFitMode;
+  continuousPageMode: ContinuousPageMode;
+  pageLengthMm: number;
   columns: number;
   rowsPerPage: number;
   itemsPerPage: number;
   pageCount: number;
+  pageWidthMm: number;
   pageHeightMm: number;
+  printableWidthMm: number;
+  warnings: string[];
   labels: PreviewLabel[];
   generatedAt: string;
 }
@@ -72,20 +83,6 @@ const TEMPLATE_SIZES: Record<string, TemplateSize> = {
   standard: { widthMm: 80, heightMm: 50 },
   compact: { widthMm: 50, heightMm: 30 },
 };
-
-const PAPER_SIZE_MM: Record<
-  PaperType,
-  { widthMm: number; heightMm: number | null }
-> = {
-  a4: { widthMm: 210, heightMm: 297 },
-  letter: { widthMm: 216, heightMm: 279 },
-  'continuous-58': { widthMm: 58, heightMm: null },
-  'continuous-80': { widthMm: 80, heightMm: null },
-  'continuous-100': { widthMm: 100, heightMm: null },
-};
-
-const DEFAULT_MARGIN_MM = 5;
-const DEFAULT_GAP_MM = 2;
 
 @Injectable()
 export class AppService {
@@ -191,65 +188,14 @@ export class AppService {
 
   preparePrint(labels: PreviewLabel[], settings: PrintSettings = {}) {
     const firstLabel = labels[0];
-    const paperType = settings.paperType ?? 'a4';
-    const orientation = settings.orientation ?? 'portrait';
-    const isContinuous = paperType.startsWith('continuous');
-    const hasZeroMarginConfigured =
-      Number(settings.marginTopMm) === 0 ||
-      Number(settings.marginBottomMm) === 0 ||
-      Number(settings.marginLeftMm) === 0 ||
-      Number(settings.marginRightMm) === 0;
-    const allowZeroMarginOnContinuous =
-      isContinuous &&
-      (settings.allowZeroMarginOnContinuous === true || hasZeroMarginConfigured);
-    const marginMin = allowZeroMarginOnContinuous ? 0 : DEFAULT_MARGIN_MM;
-    const marginTopMm = this.resolveMarginMm(settings.marginTopMm, marginMin);
-    const marginBottomMm = this.resolveMarginMm(
-      settings.marginBottomMm,
-      marginMin,
-    );
-    const marginLeftMm = this.resolveMarginMm(settings.marginLeftMm, marginMin);
-    const marginRightMm = this.resolveMarginMm(
-      settings.marginRightMm,
-      marginMin,
-    );
-    const gapHorizontalMm = this.resolveGapMm(settings.gapHorizontalMm);
-    const gapVerticalMm = this.resolveGapMm(settings.gapVerticalMm);
-    const labelWidthMm =
-      firstLabel?.templateWidthMm ?? TEMPLATE_SIZES.standard.widthMm;
-    const labelHeightMm =
-      firstLabel?.templateHeightMm ?? TEMPLATE_SIZES.standard.heightMm;
-    const paperSize = this.resolvePaperSize(paperType, orientation);
-    const maxColumns = this.calculateMaxColumns({
-      paperWidthMm: paperSize.widthMm,
-      marginLeftMm,
-      marginRightMm,
-      gapHorizontalMm,
-      labelWidthMm,
-    });
-    const columns = this.resolveColumns(settings.columns, maxColumns);
-    const rowsPerPage = this.calculateRowsPerPage({
-      paperType,
-      paperHeightMm: paperSize.heightMm,
-      marginTopMm,
-      marginBottomMm,
-      gapVerticalMm,
-      labelHeightMm,
-      labelsCount: labels.length,
-      columns,
-    });
-    const itemsPerPage = Math.max(1, columns * rowsPerPage);
-    const pageCount = Math.max(1, Math.ceil(labels.length / itemsPerPage));
-    const pageHeightMm = this.calculatePageHeightMm({
-      paperType,
-      paperHeightMm: paperSize.heightMm,
-      marginTopMm,
-      marginBottomMm,
-      gapVerticalMm,
-      labelHeightMm,
-      labelsCount: labels.length,
-      columns,
-      rowsPerPage,
+    const resolvedSettings = resolvePrintSettings(settings);
+    const layoutPlan = buildLayoutPlan({
+      labelWidthMm:
+        firstLabel?.templateWidthMm ?? TEMPLATE_SIZES.standard.widthMm,
+      labelHeightMm:
+        firstLabel?.templateHeightMm ?? TEMPLATE_SIZES.standard.heightMm,
+      totalItems: labels.length,
+      settings: resolvedSettings,
     });
 
     return {
@@ -257,21 +203,30 @@ export class AppService {
       printDocument: {
         title: 'Etiquetas listas para imprimir',
         template: firstLabel?.template ?? 'standard',
-        widthMm: labelWidthMm,
-        heightMm: labelHeightMm,
-        paperType,
-        orientation,
-        marginTopMm,
-        marginBottomMm,
-        marginLeftMm,
-        marginRightMm,
-        gapHorizontalMm,
-        gapVerticalMm,
-        columns,
-        rowsPerPage,
-        itemsPerPage,
-        pageCount,
-        pageHeightMm,
+        widthMm: layoutPlan.requestedLabelWidthMm,
+        heightMm: layoutPlan.requestedLabelHeightMm,
+        effectiveWidthMm: layoutPlan.labelWidthMm,
+        effectiveHeightMm: layoutPlan.labelHeightMm,
+        labelScale: layoutPlan.labelScale,
+        paperType: resolvedSettings.paperType,
+        orientation: resolvedSettings.orientation,
+        marginTopMm: resolvedSettings.marginTopMm,
+        marginBottomMm: resolvedSettings.marginBottomMm,
+        marginLeftMm: resolvedSettings.marginLeftMm,
+        marginRightMm: resolvedSettings.marginRightMm,
+        gapHorizontalMm: resolvedSettings.gapHorizontalMm,
+        gapVerticalMm: resolvedSettings.gapVerticalMm,
+        labelFitMode: resolvedSettings.labelFitMode,
+        continuousPageMode: resolvedSettings.continuousPageMode,
+        pageLengthMm: resolvedSettings.pageLengthMm,
+        columns: layoutPlan.columns,
+        rowsPerPage: layoutPlan.rowsPerPage,
+        itemsPerPage: layoutPlan.itemsPerPage,
+        pageCount: layoutPlan.pageCount,
+        pageWidthMm: layoutPlan.paperWidthMm,
+        pageHeightMm: layoutPlan.paperHeightMm,
+        printableWidthMm: layoutPlan.printableWidthMm,
+        warnings: layoutPlan.warnings,
         labels,
         generatedAt: new Date().toISOString(),
       } satisfies PrintDocument,
@@ -369,140 +324,5 @@ export class AppService {
     }
 
     return '';
-  }
-
-  private resolveGapMm(value: number | undefined) {
-    const gap = Number(value);
-    if (!Number.isFinite(gap)) {
-      return DEFAULT_GAP_MM;
-    }
-
-    return Math.min(Math.max(gap, 0), 20);
-  }
-
-  private resolveMarginMm(value: number | undefined, minMargin: number) {
-    const requestedMargin = Number(value);
-    if (!Number.isFinite(requestedMargin)) {
-      return minMargin;
-    }
-    return Math.min(Math.max(requestedMargin, minMargin), 25);
-  }
-
-  private resolveColumns(value: number | undefined, maxColumns: number) {
-    const requestedColumns = Number(value);
-    if (!Number.isFinite(requestedColumns)) {
-      return Math.max(1, maxColumns);
-    }
-    return Math.max(1, Math.min(Math.floor(requestedColumns), maxColumns));
-  }
-
-  private resolvePaperSize(
-    paperType: PaperType,
-    orientation: PrintOrientation,
-  ): { widthMm: number; heightMm: number | null } {
-    const paperSize = PAPER_SIZE_MM[paperType];
-    if (paperSize.heightMm === null || orientation === 'portrait') {
-      return paperSize;
-    }
-
-    return {
-      widthMm: paperSize.heightMm,
-      heightMm: paperSize.widthMm,
-    };
-  }
-
-  private calculateMaxColumns(args: {
-    paperWidthMm: number;
-    marginLeftMm: number;
-    marginRightMm: number;
-    gapHorizontalMm: number;
-    labelWidthMm: number;
-  }) {
-    const contentWidthMm = Math.max(
-      0,
-      args.paperWidthMm - args.marginLeftMm - args.marginRightMm,
-    );
-    const slotWidthMm = args.labelWidthMm + args.gapHorizontalMm;
-
-    if (slotWidthMm <= 0) {
-      return 1;
-    }
-
-    return Math.max(
-      1,
-      Math.floor((contentWidthMm + args.gapHorizontalMm) / slotWidthMm),
-    );
-  }
-
-  private calculateRowsPerPage(args: {
-    paperType: PaperType;
-    paperHeightMm: number | null;
-    marginTopMm: number;
-    marginBottomMm: number;
-    gapVerticalMm: number;
-    labelHeightMm: number;
-    labelsCount: number;
-    columns: number;
-  }) {
-    if (
-      args.paperType.startsWith('continuous') ||
-      args.paperHeightMm === null
-    ) {
-      return Math.max(
-        1,
-        Math.ceil(args.labelsCount / Math.max(1, args.columns)),
-      );
-    }
-
-    const contentHeightMm = Math.max(
-      0,
-      args.paperHeightMm - args.marginTopMm - args.marginBottomMm,
-    );
-    const slotHeightMm = args.labelHeightMm + args.gapVerticalMm;
-    if (slotHeightMm <= 0) {
-      return 1;
-    }
-
-    const estimated = Math.floor(
-      (contentHeightMm + args.gapVerticalMm) / slotHeightMm,
-    );
-    return Math.max(1, estimated);
-  }
-
-  private calculatePageHeightMm(args: {
-    paperType: PaperType;
-    paperHeightMm: number | null;
-    marginTopMm: number;
-    marginBottomMm: number;
-    gapVerticalMm: number;
-    labelHeightMm: number;
-    labelsCount: number;
-    columns: number;
-    rowsPerPage: number;
-  }) {
-    if (
-      !args.paperType.startsWith('continuous') &&
-      args.paperHeightMm !== null
-    ) {
-      return args.paperHeightMm;
-    }
-
-    const usedRows = Math.max(
-      1,
-      Math.min(
-        args.rowsPerPage,
-        Math.ceil(args.labelsCount / Math.max(1, args.columns)),
-      ),
-    );
-    const labelsHeightMm = usedRows * args.labelHeightMm;
-    const gapsHeightMm = Math.max(0, usedRows - 1) * args.gapVerticalMm;
-    return Number(
-      (
-        args.marginTopMm +
-        args.marginBottomMm +
-        labelsHeightMm +
-        gapsHeightMm
-      ).toFixed(2),
-    );
   }
 }

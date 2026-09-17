@@ -4,10 +4,11 @@ import { buildQrDataUrl, renderBarcodeIntoSvg } from '../utils/codeRendering';
 interface BarcodePreviewProps {
   value: string;
   codeType: string;
-  template: string;
+  /** Relación ancho/alto del hueco disponible, para que el código lo llene sin recortarse. */
+  aspectRatio: number;
 }
 
-export function BarcodePreview({ value, codeType, template }: BarcodePreviewProps) {
+export function BarcodePreview({ value, codeType, aspectRatio }: BarcodePreviewProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
@@ -23,7 +24,7 @@ export function BarcodePreview({ value, codeType, template }: BarcodePreviewProp
       if (img) {
         img.removeAttribute('src');
       }
-      renderBarcodeIntoSvg(svg, value, template);
+      renderBarcodeIntoSvg(svg, value, { aspectRatio });
       return;
     }
 
@@ -61,7 +62,7 @@ export function BarcodePreview({ value, codeType, template }: BarcodePreviewProp
     return () => {
       active = false;
     };
-  }, [value, codeType, template]);
+  }, [value, codeType, aspectRatio]);
 
   if (codeType === 'qr') {
     return <img ref={imgRef} className="qr-image" alt="Código QR" />;

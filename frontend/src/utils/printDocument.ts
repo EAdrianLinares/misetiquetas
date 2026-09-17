@@ -1,6 +1,7 @@
 import type { PreviewLabel, PrintDocument } from '../types';
 import { buildBarcodeMarkup, buildQrDataUrl } from './codeRendering';
-import { buildLayoutPlan, buildPrintSettings, paginate } from './printLayout';
+import { buildLabelMetrics, labelStyleAttribute, type LabelMetrics } from './labelMetrics';
+import { buildLayoutPlan, normalizePrintSettings, paginate, type LayoutPlan } from './printLayout';
 
 const currencyFormatter = new Intl.NumberFormat('es-CO');
 
@@ -23,7 +24,7 @@ function buildPriceMarkup(label: PreviewLabel) {
   return `<p class="label-price-row"><span class="label-price-strike">${price}</span><span class="label-discount-current">${currencyFormatter.format(label.discountPrice)}</span></p>`;
 }
 
-async function buildCodeMarkup(label: PreviewLabel) {
+async function buildCodeMarkup(label: PreviewLabel, metrics: LabelMetrics) {
   if (label.codeType === 'qr') {
     const src = await buildQrDataUrl(label.code);
     if (!src) {
@@ -33,73 +34,41 @@ async function buildCodeMarkup(label: PreviewLabel) {
     return `<img class="qr-image" src="${src}" alt="Código QR para ${escapeHtml(label.code)}" />`;
   }
 
-  return buildBarcodeMarkup(label.code, label.template);
+  return buildBarcodeMarkup(label.code, { aspectRatio: metrics.codeAspectRatio });
 }
 
-async function buildLabelMarkup(label: PreviewLabel) {
-  const codeMarkup = await buildCodeMarkup(label);
+async function buildLabelMarkup(label: PreviewLabel, metrics: LabelMetrics) {
+  const codeMarkup = await buildCodeMarkup(label, metrics);
   const classes = ['label-card'];
 
   classes.push(label.codeType === 'qr' ? 'qr-mode' : 'barcode-mode');
-  classes.push(label.template === 'compact' ? 'compact-mode' : 'standard-mode');
 
-  return `<article class="${classes.join(' ')}" style="--label-width-mm:${label.templateWidthMm}mm;--label-height-mm:${label.templateHeightMm}mm;"><p class="label-name">${escapeHtml(label.name)}</p><div class="barcode-wrap">${codeMarkup}</div>${buildPriceMarkup(label)}</article>`;
+  return `<article class="${classes.join(' ')}" style="${labelStyleAttribute(metrics)}"><p class="label-name">${escapeHtml(label.name)}</p><div class="barcode-wrap">${codeMarkup}</div>${buildPriceMarkup(label)}</article>`;
+}
+
+function buildPageSizeValue(layoutPlan: LayoutPlan) {
+  return `${layoutPlan.paperWidthMm}mm ${layoutPlan.paperHeightMm}mm`;
 }
 
 export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
-  const labelMarkup = await Promise.all(printDocument.labels.map((label) => buildLabelMarkup(label)));
-  const settings = buildPrintSettings({
-    profile: {
-      id: 'runtime-print-profile',
-      name: 'Runtime profile',
-      paperType: printDocument.paperType,
-      orientation: printDocument.orientation,
-      columns: printDocument.columns,
-      marginTopMm: printDocument.marginTopMm,
-      marginBottomMm: printDocument.marginBottomMm,
-      marginLeftMm: printDocument.marginLeftMm,
-      marginRightMm: printDocument.marginRightMm,
-      gapHorizontalMm: printDocument.gapHorizontalMm,
-      gapVerticalMm: printDocument.gapVerticalMm,
-      isCustom: true,
-    },
-    customSettings: {
-      paperType: printDocument.paperType,
-      orientation: printDocument.orientation,
-      columns: printDocument.columns,
-      marginTopMm: printDocument.marginTopMm,
-      marginBottomMm: printDocument.marginBottomMm,
-      marginLeftMm: printDocument.marginLeftMm,
-      marginRightMm: printDocument.marginRightMm,
-      gapHorizontalMm: printDocument.gapHorizontalMm,
-      gapVerticalMm: printDocument.gapVerticalMm,
-      allowZeroMarginOnContinuous: printDocument.paperType.startsWith('continuous'),
-    },
-    allowZeroMarginOnContinuous: printDocument.paperType.startsWith('continuous'),
-  });
+  // Los ajustes llegan ya resueltos; sólo se normalizan los tipos.
+  const settings = normalizePrintSettings(printDocument);
   const layoutPlan = buildLayoutPlan({
     labelWidthMm: printDocument.widthMm,
     labelHeightMm: printDocument.heightMm,
     totalItems: printDocument.labels.length,
     settings,
   });
-  const pageSizeValue = (() => {
-    if (settings.paperType === 'a4') {
-      return settings.orientation === 'landscape' ? 'A4 landscape' : 'A4';
-    }
-    if (settings.paperType === 'letter') {
-      return settings.orientation === 'landscape' ? 'letter landscape' : 'letter';
-    }
-
-    return `${layoutPlan.paperWidthMm}mm ${layoutPlan.paperHeightMm}mm`;
-  })();
+  const metrics = buildLabelMetrics({
+    widthMm: layoutPlan.labelWidthMm,
+    heightMm: layoutPlan.labelHeightMm,
+  });
+  const labelMarkup = await Promise.all(printDocument.labels.map((label) => buildLabelMarkup(label, metrics)));
   const pages = paginate(labelMarkup, layoutPlan.itemsPerPage);
   const pageMarkup = pages
-    .map(
-      (pageLabels) =>
-        `<section class="print-page"><div class="print-grid ${layoutPlan.columns === 1 ? 'single-column' : 'multi-column'}">${pageLabels.join('')}</div></section>`,
-    )
+    .map((pageLabels) => `<section class="print-page"><div class="print-grid">${pageLabels.join('')}</div></section>`)
     .join('');
+
   return `<!DOCTYPE html>
 <html lang="es">
   <head>
@@ -118,31 +87,71 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
       body {
         margin: 0;
         font-family: Inter, Arial, sans-serif;
-        background: #f8fafc;
+        background: #e2e8f0;
         color: #111827;
       }
 
       .print-shell {
         padding: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
       }
 
       .print-header {
+        width: 100%;
+        max-width: 760px;
         display: flex;
+        flex-wrap: wrap;
         justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 16px;
+        gap: 8px 16px;
         font-size: 12px;
-        color: #475569;
+        color: #334155;
       }
 
+      .print-hint {
+        width: 100%;
+        max-width: 760px;
+        margin: 0;
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: #fef3c7;
+        color: #92400e;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .print-hint strong {
+        display: block;
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+
+      .print-hint ol {
+        margin: 6px 0 0;
+        padding-left: 18px;
+      }
+
+      /*
+        La página mide exactamente el papel y los márgenes se aplican como
+        padding: así el navegador no vuelve a restarlos y nada queda fuera.
+        Se descuenta una fracción del alto para evitar páginas en blanco por
+        redondeo del motor de impresión.
+      */
       .print-page {
-        width: ${layoutPlan.paperWidthMm - settings.marginLeftMm - settings.marginRightMm}mm;
-        margin: 0 auto 12mm;
+        width: ${layoutPlan.paperWidthMm}mm;
+        height: calc(${layoutPlan.paperHeightMm}mm - 0.2mm);
+        padding: ${settings.marginTopMm}mm ${settings.marginRightMm}mm ${settings.marginBottomMm}mm ${settings.marginLeftMm}mm;
+        background: #ffffff;
+        overflow: hidden;
         break-after: page;
+        page-break-after: always;
       }
 
       .print-page:last-child {
         break-after: auto;
+        page-break-after: auto;
       }
 
       .print-grid {
@@ -151,101 +160,84 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
         column-gap: ${settings.gapHorizontalMm}mm;
         row-gap: ${settings.gapVerticalMm}mm;
         align-content: start;
-        justify-items: start;
-      }
-
-      .print-grid.single-column {
         justify-items: center;
-      }
-
-      .print-grid.single-column .label-card {
-        justify-self: center;
-        margin-left: auto;
-        margin-right: auto;
+        height: 100%;
       }
 
       .label-card {
-        border: 1px solid #e2e8f0;
-        border-radius: 4mm;
-        padding: 4mm;
+        border: 0.2mm solid #cbd5e1;
+        border-radius: var(--label-radius);
+        padding: var(--label-padding);
         background: #ffffff;
         display: flex;
         flex-direction: column;
-        gap: 2mm;
+        gap: var(--label-gap);
         width: var(--label-width-mm);
-        min-height: var(--label-height-mm);
+        height: var(--label-height-mm);
         overflow: hidden;
         break-inside: avoid;
-      }
-
-      .label-card.compact-mode {
-        padding: 3mm;
-        gap: 1.5mm;
+        page-break-inside: avoid;
       }
 
       .label-name {
+        flex: 0 0 auto;
+        height: var(--label-name-block);
         margin: 0;
         text-align: center;
         font-weight: 700;
-        font-size: 14px;
-      }
-
-      .compact-mode .label-name {
-        font-size: 12px;
+        font-size: var(--label-name-font);
+        line-height: 1.15;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow-wrap: anywhere;
       }
 
       .barcode-wrap {
+        flex: 0 0 auto;
+        height: var(--label-code-block);
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: 22mm;
-        padding: 2mm 0;
-        border: 1px solid #e2e8f0;
-        border-radius: 3mm;
         background: #ffffff;
         overflow: hidden;
-      }
-
-      .compact-mode .barcode-wrap {
-        min-height: 14mm;
-      }
-
-      .qr-mode .barcode-wrap {
-        min-height: 28mm;
       }
 
       .barcode-svg {
         display: block;
         width: 100%;
-        height: auto;
-        max-height: 24mm;
+        height: 100%;
       }
 
       .qr-image {
         display: block;
-        width: 100%;
-        max-width: 28mm;
-        height: auto;
+        width: var(--label-qr-size);
+        height: var(--label-qr-size);
       }
 
       .label-price-row {
+        flex: 0 0 auto;
+        height: var(--label-price-block);
         margin: 0;
         display: flex;
         justify-content: center;
-        align-items: baseline;
-        gap: 3mm;
+        align-items: center;
+        gap: var(--label-price-gap);
+        line-height: 1.1;
         color: #334155;
+        overflow: hidden;
       }
 
       .label-price-current,
       .label-discount-current {
-        font-size: 14px;
+        font-size: var(--label-price-font);
         font-weight: 800;
       }
 
       .label-price-strike {
-        font-size: 12px;
-        color: #94a3b8;
+        font-size: var(--label-strike-font);
+        color: #64748b;
         text-decoration: line-through;
       }
 
@@ -255,13 +247,13 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
 
       .code-fallback {
         color: #64748b;
-        font-size: 12px;
+        font-size: var(--label-strike-font);
         text-align: center;
       }
 
       @page {
-        size: ${pageSizeValue};
-        margin: ${settings.marginTopMm}mm ${settings.marginRightMm}mm ${settings.marginBottomMm}mm ${settings.marginLeftMm}mm;
+        size: ${buildPageSizeValue(layoutPlan)};
+        margin: 0;
       }
 
       @media print {
@@ -271,18 +263,24 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
 
         .print-shell {
           padding: 0;
+          display: block;
         }
 
-        .print-header {
+        .print-header,
+        .print-hint {
           display: none;
         }
 
         .print-page {
           margin: 0;
+          box-shadow: none;
         }
+      }
 
-        .label-card {
-          border-color: #cbd5e1;
+      @media screen {
+        .print-page {
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+          margin-bottom: 12px;
         }
       }
     </style>
@@ -291,8 +289,18 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
     <main class="print-shell">
       <header class="print-header">
         <span>${escapeHtml(printDocument.title)}</span>
+        <span>${layoutPlan.paperWidthMm} × ${layoutPlan.paperHeightMm} mm · etiqueta ${layoutPlan.labelWidthMm} × ${layoutPlan.labelHeightMm} mm · ${layoutPlan.columns} col. · ${layoutPlan.pageCount} página(s)</span>
         <span>${escapeHtml(new Date(printDocument.generatedAt).toLocaleString('es-CO'))}</span>
       </header>
+      <div class="print-hint">
+        <strong>Papel requerido: ${layoutPlan.paperWidthMm} × ${layoutPlan.paperHeightMm} mm</strong>
+        Si la vista previa muestra una hoja de otro tamaño, la está imponiendo el driver de la impresora. Para corregirlo:
+        <ol>
+          <li>Abre <b>Más ajustes</b> y en <b>Tamaño del papel</b> elige ${layoutPlan.paperWidthMm} × ${layoutPlan.paperHeightMm} mm.</li>
+          <li>Pon <b>Márgenes: Ninguno</b> y <b>Escala: 100%</b> (desactiva «Ajustar al área de impresión»).</li>
+          <li>Si ese tamaño no aparece, créalo en las preferencias de la impresora en Windows (Dispositivos e impresoras → Preferencias de impresión → tamaño personalizado).</li>
+        </ol>
+      </div>
       ${pageMarkup}
     </main>
     <script>
