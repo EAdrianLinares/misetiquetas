@@ -65,229 +65,101 @@ Vite
 
 ## Estilos
 
-CSS Modules
+CSS plano (`App.css`, `index.css`) con variables CSS en mm para las etiquetas.
 
 ### Motivo
 
 - Sin dependencias adicionales.
-- Evita conflictos de nombres.
-- Fácil mantenimiento.
+- Las medidas físicas (mm) se expresan directamente en CSS y se comparten con el documento de impresión.
 
 ---
 
 # Backend
 
-## Framework
-
-NestJS
-
-### Motivo
-
-- Arquitectura modular.
-- Basado en TypeScript.
-- Escalable.
-- Excelente organización del código.
-- Muy adecuado para APIs REST.
-
----
-
-## Lenguaje
-
-TypeScript
+No hay backend ([ADR-002](adr/adr-002-logica-en-frontend.md)). Toda la lógica corre en el navegador.
 
 ---
 
 # Despliegue
 
-## Frontend
-
-Vercel
+Vercel, como sitio estático (ver [deployment/README.md](deployment/README.md)).
 
 ### Motivo
 
-- Hosting simple y rápido para aplicaciones React/Vite.
+- Hosting simple y gratuito para una SPA de Vite.
 - Despliegues automáticos desde GitHub.
-- Ideal para una SPA o una interfaz web estática con peticiones a la API.
-
----
-
-## Backend
-
-Render
-
-### Motivo
-
-- Hosting sencillo para servicios Node.js/NestJS.
-- Permite desplegar la API REST con infraestructura mínima.
-- Facilita el ciclo de despliegue continuo desde el repositorio.
 
 ---
 
 ## Base de Datos
 
-## MVP
+No se utiliza base de datos. El estado vive en memoria durante la sesión.
 
-No se utilizará base de datos persistente.
-
-Toda la información relevante para la sesión permanecerá en memoria, y la aplicación se apoyará en la entrada del usuario para reconstruir el flujo de trabajo.
-
----
-
-## Versiones futuras
-
-Se evaluará incorporar:
-
-- SQLite
-- PostgreSQL
-
-dependiendo de las necesidades del producto y del nivel de persistencia requerido.
----
-
-# Comunicación
-
-## API
-
-REST
-
-Formato:
-
-JSON
+Si una versión futura necesita persistencia, se evaluará (SQLite o PostgreSQL) mediante un ADR.
 
 ---
 
 # Generación de Códigos
 
-Se utilizarán librerías compatibles con:
-
-- Código de Barras
-- Código QR
-
-La librería definitiva será seleccionada durante la implementación, siempre que cumpla:
-
-- Licencia permisiva.
-- Buen rendimiento.
-- Mantenimiento activo.
-- Compatibilidad con React.
+- Código de barras: `jsbarcode` (CODE128, SVG).
+- Código QR: `qrcode` (PNG de 512 px como data URL).
 
 ---
 
 # Impresión
 
-La impresión se realizará utilizando las capacidades nativas del navegador.
-
-No dependerá de software externo.
+Ventana de impresión nativa del navegador, con `@page` en mm. No depende de software externo.
 
 ---
 
 # Gestión del Estado
 
-React Context
+`useState` / `useMemo` de React en `App.tsx`. Las reglas viven en funciones puras (`domain/`, `utils/`).
 
 ### Motivo
 
-El MVP no requiere una solución más compleja como Redux o Zustand.
+El MVP es una sola pantalla; Context, Redux o Zustand no aportan nada todavía.
 
 ---
 
 # Calidad de Código
 
-## Linter
-
-ESLint
-
----
-
-## Formateador
-
-Prettier
+| Herramienta | Uso | Comando (en `frontend/`) |
+|---|---|---|
+| TypeScript (estricto) | Tipado | `npm run build` |
+| oxlint | Linter | `npm run lint` |
+| Vitest | Tests unitarios | `npm test` |
+| GitHub Actions | CI: lint, tests y build en cada push y PR | `.github/workflows/ci.yml` |
 
 ---
 
 # Control de Versiones
 
-Git
-
-Repositorio:
-
-GitHub
+Git, repositorio en GitHub.
 
 ---
 
 # Convenciones
 
-## Idioma del código
-
-Inglés
-
-Ejemplos:
-
-- Product
-- Label
-- Template
-- Barcode
-- DiscountPrice
-
----
-
-## Idioma de la documentación
-
-Español
-
----
-
-## Convención de nombres
-
-### Variables
-
-camelCase
-
-### Funciones
-
-camelCase
-
-### Componentes
-
-PascalCase
-
-### Interfaces
-
-PascalCase
-
-### Archivos
-
-kebab-case
-
-Ejemplo:
-
-product-card.tsx
+Ver [Coding-Standards.md](Coding-Standards.md).
 
 ---
 
 # Estructura del Proyecto
 
-/client
-/server
-/docs
+```text
+/frontend   aplicación React + Vite
+/docs       documentación (SDD)
+/.github    CI
+```
 
 ---
 
 # Dependencias Principales
 
-Frontend
-
-- React
-- React DOM
-- Vite
-
-Backend
-
-- NestJS
-
-Desarrollo
-
-- TypeScript
-- ESLint
-- Prettier
+- React, React DOM, Vite
+- jsbarcode, qrcode
+- Desarrollo: TypeScript, oxlint, Vitest
 
 ---
 

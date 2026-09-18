@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Parcialmente reemplazado por [ADR-002](adr-002-logica-en-frontend.md): el frontend sigue en Vercel; el backend en Render deja de usarse.
 
 ## Context
 

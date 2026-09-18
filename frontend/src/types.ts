@@ -1,26 +1,3 @@
-export interface ParsedRecord {
-  id: string;
-  name: string;
-  code: string;
-  price: number;
-  discountPrice: number | null;
-  validationState: 'valid' | 'invalid';
-  errors: string[];
-}
-
-export interface PreviewLabel {
-  id: string;
-  recordId: string;
-  name: string;
-  code: string;
-  price: number;
-  discountPrice: number | null;
-  template: string;
-  codeType: string;
-  templateWidthMm: number;
-  templateHeightMm: number;
-}
-
 export type PaperType =
   | 'a4'
   | 'letter'
@@ -81,42 +58,4 @@ export interface PrintSettings {
   /** Sólo se usa con `continuousPageMode: 'fixed'`. */
   pageLengthMm: number;
   allowZeroMarginOnContinuous: boolean;
-}
-
-export interface PrintDocument {
-  title: string;
-  template: string;
-  /** Tamaño pedido por la plantilla, antes de ajustar al papel. */
-  widthMm: number;
-  heightMm: number;
-  /** Tamaño real con el que se imprime cada etiqueta. */
-  effectiveWidthMm: number;
-  effectiveHeightMm: number;
-  labelScale: number;
-  paperType: PaperType;
-  orientation: PrintOrientation;
-  columns: number;
-  marginTopMm: number;
-  marginBottomMm: number;
-  marginLeftMm: number;
-  marginRightMm: number;
-  gapHorizontalMm: number;
-  gapVerticalMm: number;
-  labelFitMode: LabelFitMode;
-  continuousPageMode: ContinuousPageMode;
-  pageLengthMm: number;
-  rowsPerPage: number;
-  itemsPerPage: number;
-  pageCount: number;
-  pageWidthMm: number;
-  pageHeightMm: number;
-  printableWidthMm: number;
-  warnings: string[];
-  labels: PreviewLabel[];
-  generatedAt: string;
-}
-
-export interface PrintResponse {
-  status: string;
-  printDocument: PrintDocument;
 }

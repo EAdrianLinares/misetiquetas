@@ -1,22 +1,32 @@
 # Despliegue
 
-Este directorio documenta la estrategia de despliegue del proyecto.
+La aplicación es un sitio estático ([ADR-002](../adr/adr-002-logica-en-frontend.md)). No hay backend, base de datos ni variables de entorno.
 
-## Entorno propuesto
+## Vercel
 
-- Frontend: Vercel
-- Backend: Render
-- Persistencia: sin base de datos persistente en el MVP
+| Ajuste | Valor |
+|---|---|
+| Framework preset | Vite |
+| Root directory | `frontend` |
+| Install command | `npm ci` |
+| Build command | `npm run build` |
+| Output directory | `dist` |
+| Variables de entorno | Ninguna |
 
-## Variables de entorno
+Cada push a `main` despliega a producción y cada PR genera una vista previa.
 
-- FRONTEND_URL
-- API_BASE_URL
-- NODE_ENV
+## Antes de desplegar
 
-## Consideraciones
+La CI (`.github/workflows/ci.yml`) debe estar en verde: lint, tests y build.
 
-- Configurar CORS entre frontend y backend.
-- Definir health checks en Render.
-- Asegurar que el backend acepte peticiones desde Vercel.
-- Mantener el flujo sin dependencias externas para el MVP.
+Tras un cambio en layout, métricas o impresión, repetir el checklist físico de [testing/README.md](../testing/README.md).
+
+## Local
+
+```bash
+cd frontend
+npm ci
+npm run dev       # desarrollo
+npm run build     # build de producción en dist/
+npm run preview   # sirve dist/ localmente
+```

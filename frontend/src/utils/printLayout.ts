@@ -222,28 +222,6 @@ export function buildPrintSettings(input: {
   };
 }
 
-/** Normaliza ajustes que ya vienen resueltos (por ejemplo, desde el backend) sin re-aplicar reglas de perfil. */
-export function normalizePrintSettings(raw: Partial<PrintSettings>): PrintSettings {
-  const paperType = (raw.paperType ?? 'a4') as PaperType;
-  return {
-    paperType,
-    orientation: raw.orientation === 'landscape' ? 'landscape' : 'portrait',
-    columns: clampNumber(raw.columns, 1, MAX_COLUMNS, 1),
-    marginTopMm: clampNumber(raw.marginTopMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
-    marginBottomMm: clampNumber(raw.marginBottomMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
-    marginLeftMm: clampNumber(raw.marginLeftMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
-    marginRightMm: clampNumber(raw.marginRightMm, 0, MAX_MARGIN_MM, DEFAULT_MARGIN_MM),
-    gapHorizontalMm: clampNumber(raw.gapHorizontalMm, 0, 20, 2),
-    gapVerticalMm: clampNumber(raw.gapVerticalMm, 0, 20, 2),
-    labelFitMode: normalizeFitMode(raw.labelFitMode),
-    continuousPageMode: normalizePageMode(
-      isContinuousPaper(paperType) ? raw.continuousPageMode : 'content',
-    ),
-    pageLengthMm: normalizePageLengthMm(raw.pageLengthMm),
-    allowZeroMarginOnContinuous: raw.allowZeroMarginOnContinuous === true,
-  };
-}
-
 function normalizePageMode(value: ContinuousPageMode | undefined): ContinuousPageMode {
   return value === 'label' || value === 'fixed' ? value : 'content';
 }

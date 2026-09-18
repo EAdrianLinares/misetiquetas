@@ -1,5 +1,7 @@
 # Diseño técnico (motor único Preview/PDF)
 
+> **Estado (2026-09-17):** diseño objetivo. Lo implementado está en [requirements.md](requirements.md) y [SPEC-TECH-002](../technical/spec-preview-generation.md); lo pendiente (PDF, QR en SVG, marcado único) en [tasks.md](tasks.md). Los nombres `LayoutCalculator` y `RenderBuilder` corresponden hoy a `buildLayoutPlan` y `buildPrintDocumentHtml`.
+
 ## Principio clave
 
 Debe existir un solo motor de layout/render para evitar divergencias entre Preview Web y PDF.

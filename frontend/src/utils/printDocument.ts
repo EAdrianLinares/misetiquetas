@@ -1,7 +1,10 @@
-import type { PreviewLabel, PrintDocument } from '../types';
+import type { PreviewLabel } from '../domain/labels';
+import type { PrintSettings } from '../types';
 import { buildBarcodeMarkup, buildQrDataUrl } from './codeRendering';
 import { buildLabelMetrics, labelStyleAttribute, type LabelMetrics } from './labelMetrics';
-import { buildLayoutPlan, normalizePrintSettings, paginate, type LayoutPlan } from './printLayout';
+import { buildLayoutPlan, paginate, type LayoutPlan } from './printLayout';
+
+const PRINT_TITLE = 'Etiquetas listas para imprimir';
 
 const currencyFormatter = new Intl.NumberFormat('es-CO');
 
@@ -50,20 +53,28 @@ function buildPageSizeValue(layoutPlan: LayoutPlan) {
   return `${layoutPlan.paperWidthMm}mm ${layoutPlan.paperHeightMm}mm`;
 }
 
-export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
-  // Los ajustes llegan ya resueltos; sólo se normalizan los tipos.
-  const settings = normalizePrintSettings(printDocument);
+/**
+ * Documento de impresión. Usa el mismo `buildLayoutPlan` y las mismas métricas
+ * que la vista previa, así que ambos no pueden divergir (ADR-002).
+ */
+export async function buildPrintDocumentHtml(args: {
+  labels: PreviewLabel[];
+  settings: PrintSettings;
+  labelWidthMm: number;
+  labelHeightMm: number;
+}) {
+  const { labels, settings } = args;
   const layoutPlan = buildLayoutPlan({
-    labelWidthMm: printDocument.widthMm,
-    labelHeightMm: printDocument.heightMm,
-    totalItems: printDocument.labels.length,
+    labelWidthMm: args.labelWidthMm,
+    labelHeightMm: args.labelHeightMm,
+    totalItems: labels.length,
     settings,
   });
   const metrics = buildLabelMetrics({
     widthMm: layoutPlan.labelWidthMm,
     heightMm: layoutPlan.labelHeightMm,
   });
-  const labelMarkup = await Promise.all(printDocument.labels.map((label) => buildLabelMarkup(label, metrics)));
+  const labelMarkup = await Promise.all(labels.map((label) => buildLabelMarkup(label, metrics)));
   const pages = paginate(labelMarkup, layoutPlan.itemsPerPage);
   const pageMarkup = pages
     .map((pageLabels) => `<section class="print-page"><div class="print-grid">${pageLabels.join('')}</div></section>`)
@@ -74,7 +85,7 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${escapeHtml(printDocument.title)}</title>
+    <title>${PRINT_TITLE}</title>
     <style>
       :root {
         color-scheme: light;
@@ -288,9 +299,9 @@ export async function buildPrintDocumentHtml(printDocument: PrintDocument) {
   <body>
     <main class="print-shell">
       <header class="print-header">
-        <span>${escapeHtml(printDocument.title)}</span>
+        <span>${PRINT_TITLE}</span>
         <span>${layoutPlan.paperWidthMm} × ${layoutPlan.paperHeightMm} mm · etiqueta ${layoutPlan.labelWidthMm} × ${layoutPlan.labelHeightMm} mm · ${layoutPlan.columns} col. · ${layoutPlan.pageCount} página(s)</span>
-        <span>${escapeHtml(new Date(printDocument.generatedAt).toLocaleString('es-CO'))}</span>
+        <span>${escapeHtml(new Date().toLocaleString('es-CO'))}</span>
       </header>
       <div class="print-hint">
         <strong>Papel requerido: ${layoutPlan.paperWidthMm} × ${layoutPlan.paperHeightMm} mm</strong>

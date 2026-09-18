@@ -1,6 +1,8 @@
 # EPIC-003
 # Gestión de Generaciones
 
+> **Alcance en el MVP:** una generación es el estado actual de la pantalla (registros, plantilla, papel, tipo de código y copias). Los estados Borrador/Generada/Impresa, guardar cambios e histórico requieren persistencia y quedan para la versión 1.1 del Roadmap ("Guardar generaciones").
+
 ---
 
 # Información General

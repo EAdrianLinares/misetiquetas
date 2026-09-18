@@ -70,6 +70,30 @@ export function buildLabelMetrics(args: { widthMm: number; heightMm: number }): 
   };
 }
 
+/** Tamaños mínimos legibles (docs/specs/print-engine/requirements.md). */
+export const MIN_CODE_SIZE_MM = {
+  qr: 20,
+  barcodeWidth: 30,
+  barcodeHeight: 10,
+} as const;
+
+/**
+ * Avisa cuando el código impreso queda por debajo del mínimo legible. No bloquea
+ * la impresión: el lector puede funcionar igual, pero conviene probarlo.
+ */
+export function codeSizeWarning(metrics: LabelMetrics, codeType: 'barcode' | 'qr'): string | null {
+  if (codeType === 'qr') {
+    return metrics.qrSizeMm < MIN_CODE_SIZE_MM.qr
+      ? `El QR medirá ${metrics.qrSizeMm} mm, menos de los ${MIN_CODE_SIZE_MM.qr} mm recomendados. Usa una etiqueta más grande o prueba que el lector lo reconozca.`
+      : null;
+  }
+
+  return metrics.contentWidthMm < MIN_CODE_SIZE_MM.barcodeWidth ||
+    metrics.codeBlockMm < MIN_CODE_SIZE_MM.barcodeHeight
+    ? `El código de barras tendrá ${metrics.contentWidthMm} × ${metrics.codeBlockMm} mm, menos de los ${MIN_CODE_SIZE_MM.barcodeWidth} × ${MIN_CODE_SIZE_MM.barcodeHeight} mm recomendados. Usa una etiqueta más grande o menos columnas.`
+    : null;
+}
+
 /** Variables CSS consumidas por `.label-card` en la vista previa y en la impresión. */
 export function labelCssVars(metrics: LabelMetrics): Record<string, string> {
   return {

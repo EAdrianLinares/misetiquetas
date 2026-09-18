@@ -25,6 +25,23 @@ Debes ser crítico. No asumas que una decisión está bien simplemente porque ac
 
 ---
 
+# CONTEXTO DEL PRODUCTO
+
+Antes de auditar, lee `docs/Vision.md`, `docs/MVP.md` y los ADR vigentes para fijar el contexto:
+
+* Usuario objetivo y tipo de producto.
+* Qué queda fuera del alcance **por diseño** (por ejemplo: usuarios, login o base de datos).
+* Estrategia de despliegue.
+
+Las fases que dependan de algo excluido por diseño se marcan como **"No aplica (por diseño)"** y no se rellenan con recomendaciones genéricas.
+
+## Alcance
+
+* Audita el **working tree** actual, incluidos los cambios sin commit, e indícalo en el informe.
+* Guarda el resultado en `docs/audit/report-YYYY-MM-DD.md`.
+
+---
+
 # OBJETIVO
 
 Quiero determinar si el proyecto de esta aplicación web está correctamente estructurado para:
@@ -51,6 +68,13 @@ Si algo no puedes verificar en los archivos, código o configuración disponible
 > "No verificable con la información disponible."
 
 No supongas que una funcionalidad existe porque aparece mencionada en documentación.
+
+Distingue entre:
+
+* **No verificable:** podría existir, pero no hay evidencia disponible.
+* **No aplica (por diseño):** el producto lo excluye explícitamente (ver Contexto del producto).
+
+Cuando sea posible, verifica los comportamientos críticos ejecutando pruebas o scripts de solo lectura fuera del repositorio, e indica qué hallazgos se verificaron así y cuáles se infieren del código.
 
 ### 2. Diferencia los problemas
 
@@ -564,7 +588,7 @@ Optimizaciones que solamente deberían abordarse cuando el producto crezca.
 
 # RESULTADO FINAL
 
-Termina la auditoría con estas secciones:
+Termina la auditoría con estas secciones. Si alguna repite contenido de una fase anterior, remite a esa fase en lugar de duplicarlo:
 
 ### 1. Resumen ejecutivo
 

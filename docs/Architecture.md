@@ -4,165 +4,68 @@
 
 ## Objetivo
 
-La aplicación seguirá una arquitectura modular cliente-servidor.
+La aplicación es una SPA estática: toda la lógica se ejecuta en el navegador y no depende de ningún servidor propio ([ADR-002](adr/adr-002-logica-en-frontend.md)).
 
-Cada módulo tendrá una única responsabilidad y estará desacoplado del resto del sistema.
-
-El objetivo es facilitar el mantenimiento, las pruebas y la incorporación de nuevas funcionalidades sin afectar el código existente.
+Cada módulo tiene una única responsabilidad, para facilitar el mantenimiento, las pruebas y la incorporación de nuevas funcionalidades.
 
 ---
 
 # Arquitectura General
 
 ```text
-+-------------------------+
-|      Vercel             |
-|   Frontend React        |
-+------------+------------+
-            |
-        HTTP / JSON
-            |
-+------------+------------+
-|       Render            |
-|   Backend NestJS        |
-+------------+------------+
-            |
-      Generación de
-      códigos y etiquetas
++------------------------------------------+
+|  Vercel (hosting estático)               |
+|                                          |
+|  Navegador del usuario                   |
+|  React + Vite                            |
+|   ├─ domain/   interpretación, reglas    |
+|   ├─ utils/    layout, métricas, códigos |
+|   └─ App.tsx   interfaz                  |
+|                                          |
+|  → ventana de impresión del navegador    |
++------------------------------------------+
 ```
 
----
-
-# Despliegue propuesto
-
-## Frontend
-
-- Se desplegará en Vercel.
-- Servirá la aplicación web React/Vite.
-- Recibirá las peticiones del usuario y consumirá la API del backend.
-
-## Backend
-
-- Se desplegará en Render.
-- Expondrá la API REST para la interpretación de datos, generación de etiquetas y demás lógica de negocio.
-
-## Persistencia
-
-- Para el MVP no se utilizará base de datos persistente.
-- La información se manejará en memoria durante la sesión o se reconstruirá a partir de la entrada del usuario.
-- En futuras versiones se podría evaluar agregar almacenamiento persistente si se requiere guardar generaciones o resultados.
+Los datos del usuario nunca salen del navegador.
 
 ---
 
-# Frontend
+# Persistencia
 
-Responsable de:
-
-* Capturar la información pegada por el usuario.
-* Interpretar y revisar los datos ingresados.
-* Administrar la generación.
-* Mostrar la vista previa.
-* Solicitar la impresión.
-* Consumir la API.
-
-## Módulos
-
-### Datos
-
-Recibe la información fuente y la prepara para su interpretación.
+No hay base de datos. El estado vive en memoria durante la sesión y se reconstruye a partir de la entrada del usuario.
 
 ---
 
-### Generación
+# Módulos (`frontend/src`)
 
-Administra la configuración de una impresión.
+| Módulo | Archivos | Responsabilidad |
+|---|---|---|
+| Interpretación | `domain/parseInput.ts`, `domain/amount.ts` | Convertir el texto pegado en registros ([SPEC-FUNC-006](specs/functional/spec-input-format.md)) |
+| Registros | `domain/records.ts` | Validación única de un registro (al interpretar y al editar) |
+| Generación | `domain/labels.ts` | Plantillas, copias, límites y etiquetas resultantes |
+| Layout | `utils/printLayout.ts` | Perfiles de papel, columnas, filas, páginas y escala de la etiqueta |
+| Métricas | `utils/labelMetrics.ts` | Medidas internas de la etiqueta y mínimos de legibilidad del código |
+| Códigos | `utils/codeRendering.ts` | Código de barras (CODE128, SVG) y QR |
+| Impresión | `utils/printDocument.ts` | Documento HTML con `@page` en mm para la ventana de impresión |
+| Interfaz | `App.tsx`, `components/` | Flujo de 3 pasos: pegar, revisar, configurar e imprimir |
 
-* Plantilla
-* Tipo de código
-* Cantidad de copias
+## Regla principal
 
----
+**Una sola implementación por regla.** La vista previa y la impresión usan el mismo `buildLayoutPlan` y el mismo `buildLabelMetrics`, así que no pueden divergir.
 
-### Etiquetas
-
-Construye la vista previa de las etiquetas.
-
----
-
-### Impresión
-
-Genera el documento listo para imprimir.
-
----
-
-# Backend
-
-Responsable de:
-
-* Validar la información recibida.
-* Interpretar datos provenientes de texto o CSV.
-* Generar códigos de barras.
-* Generar códigos QR.
-* Construir las etiquetas.
-* Generar el documento final.
-
----
-
-# Comunicación
-
-La comunicación entre Frontend y Backend será mediante una API REST utilizando JSON.
-
----
-
-# Organización
-
-Cada módulo será independiente.
-
-Ejemplo:
-
-```text
-Frontend
-
-Datos
-Generacion
-Etiquetas
-Impresion
-Plantillas
-```
-
-```text
-Backend
-
-Datos
-Generacion
-Etiquetas
-Plantillas
-Codigos
-```
+`domain/` y `utils/` son funciones puras sin dependencias de React: se prueban con Vitest sin navegador.
 
 ---
 
 # Principios
 
 * Separación de responsabilidades.
-* Alta cohesión.
-* Bajo acoplamiento.
-* Componentes reutilizables.
-* Código sencillo.
-* Arquitectura modular.
+* Funciones puras para las reglas; la interfaz sólo compone.
+* Código sencillo y proporcional a la etapa del producto.
 * Desarrollo guiado por especificaciones (SDD).
 
 ---
 
-# Escalabilidad
+# Evolución
 
-Aunque el proyecto es un MVP, la arquitectura permitirá incorporar posteriormente:
-
-* Base de datos.
-* Usuarios.
-* Historial de impresiones.
-* Exportación a PDF.
-* Importación desde Excel o CSV.
-* Nuevas plantillas.
-* Nuevos formatos de códigos.
-
+Si en el futuro se necesita persistencia, cuentas o una API pública (Roadmap 2.x), se añadirá un backend mediante un nuevo ADR. Los módulos de `domain/` están aislados para poder reutilizarse o portarse.

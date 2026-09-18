@@ -2,72 +2,57 @@
 
 ## Objetivo
 
-Garantizar impresión física 1:1 de etiquetas desde Preview Web y PDF, con un solo motor de render.
+Imprimir las etiquetas con medidas físicas fiables (±1 mm) en rollo térmico y en hoja, desde la ventana de impresión del navegador, y que la vista previa muestre exactamente lo que se imprimirá.
 
-## Problema actual
+## Alcance
 
-La impresión depende del navegador y puede aplicar escalado o ajustes automáticos, rompiendo las medidas físicas reales.
+- Plantillas de etiqueta: Estándar 80 × 50 mm, Compacta 50 × 30 mm y Personalizada (ancho 15–200 mm, alto 10–300 mm).
+- Papeles: A4, Carta, continuo 58, 80 y 100 mm; orientación vertical u horizontal en hoja.
+- Perfiles de papel predefinidos (`PAPER_PROFILES` en `utils/printLayout.ts`) y un perfil Personalizado.
+- **Fuera del MVP:** exportación a PDF (Roadmap).
 
-## Alcance (MVP v2)
+## Perfiles y márgenes
 
-- Usar inicialmente las plantillas ya existentes del sistema.
-- Soportar papel:
-  - A4.
-  - Continuo: 58mm, 80mm, 100mm.
-- Márgenes:
-  - Por defecto: 5mm.
-  - En continuo: permitir 0mm cuando esté habilitado por configuración.
-- Distribución automática de etiquetas.
-- Fuente de verdad visual: Preview Web.
-- PDF generado como representación 1:1 del Preview Web.
+| Perfil | Columnas | Márgenes (sup/inf/lat) | Separación |
+|---|---|---|---|
+| Continuo 58 / 80 / 100 mm | 1 | 1 / 2 / 2 mm | 0 horizontal, 2 vertical |
+| Continuo 100 mm, 2 o 3 columnas | 2 o 3 | 1 / 2 / 2 mm | 2 mm |
+| Carta, A4 | 2 | 10 mm | 3 mm |
+| Personalizado | 1–4 | Mínimo 5 mm; 0 mm en continuo si el usuario lo habilita | Configurable 0–20 mm |
 
-## Reglas de layout obligatorias
+Los márgenes se acotan a 0–25 mm y las columnas a 1–4.
 
-- Mantener tamaño físico exacto (unidades en mm).
-- Mantener orientación definida por la plantilla.
-- Separación configurable entre etiquetas (default 2mm, configurable por plantilla).
-- Alineación superior izquierda.
-- Nunca escalar.
-- Nunca deformar.
-- Si una etiqueta no cabe en la fila actual: mover a la siguiente fila.
-- Si una nueva fila no cabe en la página: crear nueva página.
+## Reglas de layout
 
-## Requisitos funcionales
+1. **Columnas:** si el hueco de cada columna queda por debajo de 18 mm, se reducen columnas y se avisa.
+2. **Ajuste de la etiqueta** (`labelFitMode`):
+   - `contain` (por defecto): se reduce proporcionalmente sólo si no cabe. Nunca se amplía.
+   - `fill`: se ajusta siempre al ancho disponible (reduce o amplía).
+   - `none`: tamaño exacto; si no cabe se avisa de que se recortará.
+   - Nunca se deforma: ancho y alto usan el mismo factor. El factor se trunca a milésimas para no exceder el hueco.
+3. **Longitud de página en continuo** (`continuousPageMode`):
+   - `content` (por defecto): una página con el alto exacto del lote (menos papel).
+   - `label`: una fila por página.
+   - `fixed`: longitud declarada en mm (paso del troquel o tamaño del driver), respetada al milímetro.
+4. En hoja, las filas por página se calculan con el alto imprimible; una fila que no cabe pasa a la página siguiente.
+5. Si la página continua derivada del contenido queda más ancha que alta, se alarga para que el navegador no la gire, y se avisa. Con longitud fija no se alarga; sólo se avisa.
+6. **Alineación:** filas desde arriba; cada etiqueta centrada horizontalmente en su columna.
 
-1. El sistema debe calcular columnas y filas según:
-   - tamaño de papel,
-   - márgenes,
-   - dimensiones físicas de etiqueta,
-   - separación configurada.
-2. El sistema debe producir el mismo layout en:
-   - Preview Web,
-   - impresión del navegador,
-   - PDF exportado.
-3. El sistema debe usar un único contrato de datos/layout para Preview y PDF (sin doble motor).
-4. Debe permitir configuración por plantilla de:
-   - separación,
-   - orientación,
-   - márgenes (cuando aplique).
+## Códigos
 
-## Requisitos de calidad de códigos
+- Código de barras: CODE128 en SVG, zona muda de 10 módulos. Sólo ASCII imprimible (sin tildes ni ñ).
+- QR: corrección de errores M, 512 px.
+- **Tamaños mínimos recomendados:** QR 20 × 20 mm; código de barras 30 × 10 mm. Por debajo se muestra un aviso; no bloquea la impresión.
 
-- Preferencia de render: SVG.
-- Fallback permitido: PNG mínimo 300dpi (ideal 600dpi).
-- Tamaños mínimos:
-  - QR: 20x20mm.
-  - Barcode: 30mm ancho x 10mm alto.
+## Requisitos
 
-## Requisitos no funcionales
-
-- Precisión física aceptable: ±1mm máximo.
-- Consistencia entre navegadores objetivo (Chrome/Edge en Windows).
-- Compatibilidad con impresora A4 y térmica continua (58/80/100).
+1. La vista previa y el documento de impresión usan el mismo `buildLayoutPlan` y el mismo `buildLabelMetrics` (una sola implementación).
+2. El documento de impresión declara `@page` con el tamaño exacto del papel en mm y margen 0; los márgenes se aplican como padding.
+3. La ventana de impresión explica cómo configurar el tamaño del papel, márgenes «Ninguno» y escala 100 % en el driver.
+4. Precisión física: ±1 mm en Chrome y Edge sobre Windows.
 
 ## Criterios de aceptación
 
-1. Una etiqueta de 50x30mm imprime físicamente en 50x30mm con desviación máxima ±1mm.
-2. No existe reducción automática ni “fit to page” en el flujo recomendado de impresión.
-3. El PDF coincide visual y dimensionalmente con el Preview Web (1:1).
-4. El layout respeta orientación, separación y alineación superior izquierda.
-5. Cuando el contenido no cabe, se hace salto de fila/página según reglas.
-6. QR y barcode cumplen tamaños mínimos y legibilidad en impresión física.
+1. Los casos de `utils/printLayout.test.ts` y `utils/labelMetrics.test.ts` pasan.
+2. El checklist físico de [testing/README.md](../../testing/README.md) se cumple dentro de ±1 mm.
+3. Diez etiquetas seguidas en papel troquelado con página fija no se desplazan.

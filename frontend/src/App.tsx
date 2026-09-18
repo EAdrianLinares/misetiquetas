@@ -9,11 +9,19 @@ import type {
   PaperType,
   PrintOrientation,
   PrintSettings,
-  ParsedRecord,
-  PreviewLabel,
-  PrintResponse,
 } from './types';
-import { buildLabelMetrics, labelCssVars } from './utils/labelMetrics';
+import {
+  buildLabels,
+  CUSTOM_LABEL_LIMITS,
+  MAX_COPIES,
+  resolveTemplateSize,
+  TEMPLATE_SIZES,
+  type CodeType,
+  type TemplateId,
+} from './domain/labels';
+import { parseInput } from './domain/parseInput';
+import { updateRecordField, type ParsedRecord, type RecordFields } from './domain/records';
+import { buildLabelMetrics, codeSizeWarning, labelCssVars } from './utils/labelMetrics';
 import { buildPrintDocumentHtml } from './utils/printDocument';
 import {
   buildLayoutPlan,
@@ -24,14 +32,9 @@ import {
   PAPER_TYPE_LABELS,
 } from './utils/printLayout';
 
-const defaultInput = 'Producto A, COD-001, 1200\nProducto B, COD-002, 800, 650';
-const TEMPLATE_SIZES = {
-  standard: { widthMm: 80, heightMm: 50, label: '80 × 50 mm' },
-  compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
-} as const;
-const CUSTOM_TEMPLATE_ID = 'custom';
+const defaultInput = 'Producto A, COD-001, 1.200\nProducto B, COD-002, 800, 650';
 const DEFAULT_CUSTOM_LABEL = { widthMm: 54, heightMm: 40 };
-const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
+const priceFormatter = new Intl.NumberFormat('es-CO');
 const DEFAULT_PAPER_PROFILE_ID = 'continuous-58-default';
 const DEFAULT_PAGE_LENGTH_MM = 210;
 const PX_PER_MM = 96 / 25.4;
@@ -47,10 +50,6 @@ const PAGE_MODE_LABELS: Record<ContinuousPageMode, string> = {
   label: 'Una etiqueta por página',
   fixed: 'Fija: igualar el papel del driver',
 };
-
-function buildApiUrl(path: '/api/parse' | '/api/preview' | '/api/print') {
-  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
-}
 
 function profileToSettings(profile: PaperProfile): PrintSettings {
   return {
@@ -80,29 +79,26 @@ function profileNeedsZeroMargins(profile: PaperProfile) {
   );
 }
 
-async function readJsonResponse<T>(response: Response) {
-  const data = (await response.json()) as T & { message?: string | string[] };
-
-  if (response.ok) {
-    return data;
-  }
-
-  if (Array.isArray(data.message)) {
-    throw new Error(data.message.join(' · '));
-  }
-
-  throw new Error(data.message ?? 'La solicitud no se pudo completar.');
+function invalidIds(records: ParsedRecord[]) {
+  return new Set(records.filter((record) => record.validationState === 'invalid').map((record) => record.id));
 }
 
 function App() {
   const coffeeSupportKey = '0091439175';
   const [inputText, setInputText] = useState(defaultInput);
+  /** Texto que produjo `records`; si el textarea cambia, hay que volver a interpretar. */
+  const [parsedText, setParsedText] = useState<string | null>(null);
   const [records, setRecords] = useState<ParsedRecord[]>([]);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [template, setTemplate] = useState('standard');
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  /**
+   * Filas mostradas con «Sólo con errores». Se fija al activar el filtro para
+   * que una fila corregida no desaparezca mientras el usuario escribe.
+   */
+  const [invalidFilterIds, setInvalidFilterIds] = useState<Set<string> | null>(null);
+  const [template, setTemplate] = useState<TemplateId>('standard');
   const [customLabelWidthMm, setCustomLabelWidthMm] = useState(DEFAULT_CUSTOM_LABEL.widthMm);
   const [customLabelHeightMm, setCustomLabelHeightMm] = useState(DEFAULT_CUSTOM_LABEL.heightMm);
-  const [codeType, setCodeType] = useState('barcode');
+  const [codeType, setCodeType] = useState<CodeType>('barcode');
   const [copies, setCopies] = useState(2);
   const [paperProfileId, setPaperProfileId] = useState(DEFAULT_PAPER_PROFILE_ID);
   const [customPrintSettings, setCustomPrintSettings] = useState<PrintSettings>(
@@ -118,15 +114,25 @@ function App() {
     findPaperProfile(DEFAULT_PAPER_PROFILE_ID).pageLengthMm ?? DEFAULT_PAGE_LENGTH_MM,
   );
   const [allowZeroMarginOnContinuous, setAllowZeroMarginOnContinuous] = useState(false);
-  const [previewLabels, setPreviewLabels] = useState<PreviewLabel[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('Pega tus datos y pulsa interpretar para comenzar.');
-  const [printStatus, setPrintStatus] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const [message, setMessage] = useState('Pega tus datos y pulsa «Interpretar datos» para comenzar.');
   const [showPrintSuccessModal, setShowPrintSuccessModal] = useState(false);
   const [copySuccessMessage, setCopySuccessMessage] = useState<string | null>(null);
-  const [isRecordsExpanded, setIsRecordsExpanded] = useState(false);
 
-  const validRecords = useMemo(() => records.filter((record) => record.validationState === 'valid'), [records]);
+  const invalidRecords = useMemo(() => records.filter((record) => record.validationState === 'invalid'), [records]);
+  const validCount = records.length - invalidRecords.length;
+  const isInputStale = parsedText !== null && parsedText !== inputText;
+  // Las etiquetas se derivan siempre del estado actual: la vista previa nunca queda desactualizada.
+  const generation = useMemo(() => buildLabels(records, { codeType, copies }), [codeType, copies, records]);
+  const previewLabels = generation.labels;
+  const blockingReasons = [
+    ...(isInputStale ? ['El texto cambió: pulsa «Interpretar datos» para actualizar los registros.'] : []),
+    ...(invalidRecords.length > 0
+      ? [`Hay ${invalidRecords.length} registro(s) con errores: corrígelos en la tabla o quítalos.`]
+      : []),
+    ...generation.errors,
+  ];
+  const canPrint = previewLabels.length > 0 && blockingReasons.length === 0 && !printing;
   const selectedPaperProfile = useMemo(() => findPaperProfile(paperProfileId), [paperProfileId]);
   const isCustomPaperProfile = selectedPaperProfile.isCustom === true;
   const printSettings = useMemo<PrintSettings>(
@@ -151,24 +157,24 @@ function App() {
     ],
   );
   // La plantilla define el tamaño pedido; el plan decide con qué tamaño cabe en el papel.
-  const isCustomTemplate = template === CUSTOM_TEMPLATE_ID;
-  const templateSize = isCustomTemplate
-    ? { widthMm: customLabelWidthMm, heightMm: customLabelHeightMm }
-    : TEMPLATE_SIZES[template as keyof typeof TEMPLATE_SIZES] ?? TEMPLATE_SIZES.standard;
+  const isCustomTemplate = template === 'custom';
+  const templateSize = resolveTemplateSize(template, { widthMm: customLabelWidthMm, heightMm: customLabelHeightMm });
   const previewLayout = useMemo(
     () =>
       buildLayoutPlan({
-        labelWidthMm: previewLabels[0]?.templateWidthMm ?? templateSize.widthMm,
-        labelHeightMm: previewLabels[0]?.templateHeightMm ?? templateSize.heightMm,
+        labelWidthMm: templateSize.widthMm,
+        labelHeightMm: templateSize.heightMm,
         totalItems: Math.max(1, previewLabels.length),
         settings: printSettings,
       }),
-    [previewLabels, printSettings, templateSize.heightMm, templateSize.widthMm],
+    [previewLabels.length, printSettings, templateSize.heightMm, templateSize.widthMm],
   );
   const labelMetrics = useMemo(
     () => buildLabelMetrics({ widthMm: previewLayout.labelWidthMm, heightMm: previewLayout.labelHeightMm }),
     [previewLayout.labelHeightMm, previewLayout.labelWidthMm],
   );
+  const sizeWarning = codeSizeWarning(labelMetrics, codeType);
+  const layoutWarnings = sizeWarning ? [...previewLayout.warnings, sizeWarning] : previewLayout.warnings;
   const previewPages = useMemo(
     () => paginate(previewLabels, previewLayout.itemsPerPage),
     [previewLabels, previewLayout.itemsPerPage],
@@ -197,70 +203,43 @@ function App() {
     return () => window.clearTimeout(timeoutId);
   }, [showPrintSuccessModal]);
 
-  const handlePreview = async () => {
-    setLoading(true);
+  const handleInterpret = () => {
+    const result = parseInput(inputText);
+    setRecords(result.records);
+    setParseErrors(result.errors);
+    setParsedText(inputText);
     setShowPrintSuccessModal(false);
-    setCopySuccessMessage(null);
-    setMessage('Interpretando datos y generando vista previa...');
-    try {
-      const parseResponse = await fetch(buildApiUrl('/api/parse'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: inputText }),
-      });
-      const parseData = await readJsonResponse<{ records: ParsedRecord[]; errors: string[] }>(parseResponse);
-      const nextRecords = parseData.records ?? [];
-      setRecords(nextRecords);
-      setErrors(parseData.errors ?? []);
 
-      if (nextRecords.length === 0) {
-        setPreviewLabels([]);
-        setMessage('No se encontraron registros para generar la vista previa.');
-        return;
-      }
-
-      const validRecordsForPreview = nextRecords.filter((record) => record.validationState === 'valid');
-      if (validRecordsForPreview.length === 0) {
-        setPreviewLabels([]);
-        setMessage('Hay registros con errores; corrige los datos antes de previsualizar.');
-        return;
-      }
-
-      const previewResponse = await fetch(buildApiUrl('/api/preview'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          records: validRecordsForPreview.map((record) => ({
-            ...record,
-            price: Number(record.price),
-            discountPrice: record.discountPrice ? Number(record.discountPrice) : null,
-          })),
-          template,
-          codeType,
-          copies,
-          templateWidthMm: customLabelWidthMm,
-          templateHeightMm: customLabelHeightMm,
-        }),
-      });
-      const previewData = await readJsonResponse<{ labels: PreviewLabel[] }>(previewResponse);
-      setPreviewLabels(previewData.labels ?? []);
-      setPrintStatus(null);
-      setMessage('Datos interpretados y vista previa generada correctamente.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo interpretar ni generar la vista previa.');
-    } finally {
-      setLoading(false);
+    const invalid = result.records.filter((record) => record.validationState === 'invalid').length;
+    if (result.records.length === 0) {
+      setMessage('No se encontraron registros. Revisa el formato del texto.');
+    } else if (invalid > 0) {
+      setInvalidFilterIds(invalidIds(result.records));
+      setMessage(
+        `Se interpretaron ${result.records.length} registro(s); ${invalid} tienen errores. Corrígelos en la tabla del paso 2.`,
+      );
+    } else {
+      setInvalidFilterIds(null);
+      setMessage(`Se interpretaron ${result.records.length} registro(s) sin errores. Revisa la vista previa.`);
     }
   };
 
+  const removeInvalidRecords = () => {
+    setRecords((current) => current.filter((record) => record.validationState === 'valid'));
+    setInvalidFilterIds(null);
+    setMessage(`Se quitaron ${invalidRecords.length} registro(s) con errores; no se imprimirán.`);
+  };
+
   const handlePrint = async () => {
+    if (!canPrint) {
+      return;
+    }
+
+    // Se abre de inmediato, dentro del clic, para que el navegador no la bloquee.
     const printWindow = window.open('', '_blank');
 
     if (!printWindow) {
       setMessage('Tu navegador bloqueó la ventana de impresión. Permite ventanas emergentes e intenta de nuevo.');
-      setPrintStatus(null);
-      setShowPrintSuccessModal(false);
-      setCopySuccessMessage(null);
       return;
     }
 
@@ -269,34 +248,28 @@ function App() {
     );
     printWindow.document.close();
 
-    setLoading(true);
+    setPrinting(true);
     setShowPrintSuccessModal(false);
     setCopySuccessMessage(null);
     setMessage('Preparando impresión...');
     try {
-      const response = await fetch(buildApiUrl('/api/print'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labels: previewLabels, settings: printSettings }),
+      const html = await buildPrintDocumentHtml({
+        labels: previewLabels,
+        settings: printSettings,
+        labelWidthMm: templateSize.widthMm,
+        labelHeightMm: templateSize.heightMm,
       });
-      const data = await readJsonResponse<PrintResponse>(response);
-      const html = await buildPrintDocumentHtml(data.printDocument);
 
       printWindow.document.open();
       printWindow.document.write(html);
       printWindow.document.close();
-      setPrintStatus(`${data.status}: ${Array.isArray(data.printDocument?.labels) ? data.printDocument.labels.length : 0} etiquetas listas.`);
-      setMessage('Documento listo para impresión.');
+      setMessage(`Se abrió la ventana de impresión con ${previewLabels.length} etiqueta(s).`);
       setShowPrintSuccessModal(true);
-      setCopySuccessMessage(null);
     } catch (error) {
       printWindow.close();
-      setPrintStatus(null);
-      setShowPrintSuccessModal(false);
-      setCopySuccessMessage(null);
       setMessage(error instanceof Error ? error.message : 'No se pudo preparar la impresión.');
     } finally {
-      setLoading(false);
+      setPrinting(false);
     }
   };
 
@@ -310,29 +283,9 @@ function App() {
     }
   };
 
-  const updateRecord = (index: number, field: keyof ParsedRecord, value: string) => {
+  const updateRecord = (recordId: string, field: keyof RecordFields, value: string) => {
     setRecords((current) =>
-      current.map((record, recordIndex) => {
-        if (recordIndex !== index) {
-          return record;
-        }
-
-        if (field === 'name') {
-          return { ...record, name: value };
-        }
-        if (field === 'code') {
-          return { ...record, code: value };
-        }
-        if (field === 'price') {
-          const nextValue = Number(value);
-          return { ...record, price: Number.isFinite(nextValue) ? nextValue : 0 };
-        }
-        if (field === 'discountPrice') {
-          const nextValue = value ? Number(value) : null;
-          return { ...record, discountPrice: Number.isFinite(nextValue) ? nextValue : null };
-        }
-        return record;
-      }),
+      current.map((record) => (record.id === recordId ? updateRecordField(record, field, value) : record)),
     );
   };
 
@@ -378,27 +331,40 @@ function App() {
           <div className="panel-header">
             <div>
               <h2>1. Pega la información</h2>
-              <p>Usa un formato simple por fila: nombre, código, precio y descuento opcional. Ejemplo: Producto A, COD-001, 1200.</p>
+              <p>
+                Una fila por producto: nombre, código, precio y descuento opcional. Copia directamente desde Excel o
+                separa con comas. Los precios pueden llevar puntos de miles: 1.500 o $ 1.500.
+              </p>
             </div>
           </div>
 
           <textarea
+            aria-label="Datos de los productos"
             value={inputText}
             onChange={(event) => setInputText(event.target.value)}
             rows={10}
-            placeholder={'Producto A, COD-001, 1200\nProducto B, COD-002, 800, 650'}
+            placeholder={'Producto A, COD-001, 1.200\nProducto B, COD-002, 800, 650'}
           />
 
-          <div className="status-row">
+          <div className="action-buttons input-actions">
+            <button type="button" onClick={handleInterpret} disabled={!inputText.trim()}>
+              Interpretar datos
+            </button>
+          </div>
+
+          <div className="status-row" aria-live="polite">
             <span className="status-pill">{message}</span>
           </div>
 
-          {errors.length > 0 && (
-            <div className="error-box">
-              <h3>Errores detectados</h3>
+          {isInputStale && (
+            <p className="fit-notice">El texto cambió desde la última interpretación. Pulsa «Interpretar datos» otra vez.</p>
+          )}
+
+          {parseErrors.length > 0 && (
+            <div className="error-box" role="alert">
               <ul>
-                {errors.map((error) => (
-                  <li key={error}>{error}</li>
+                {parseErrors.map((error, index) => (
+                  <li key={index}>{error}</li>
                 ))}
               </ul>
             </div>
@@ -409,9 +375,117 @@ function App() {
           <div className="panel-header">
             <div>
               <h2>2. Revisa los registros</h2>
-              <p>Corrige cualquier dato antes de generar la vista previa. La medida la define la plantilla.</p>
+              <p>Corrige aquí cualquier dato; los cambios se aplican al instante en la vista previa.</p>
             </div>
           </div>
+
+          <div className="record-table-wrapper">
+            <div className="record-table-toolbar">
+              <span>
+                {records.length} registros · {validCount} OK
+                {invalidRecords.length > 0 ? ` · ${invalidRecords.length} con errores` : ''}
+              </span>
+              {(invalidRecords.length > 0 || invalidFilterIds !== null) && (
+                <div className="record-table-actions">
+                  <label className="checkbox-row compact">
+                    <input
+                      type="checkbox"
+                      checked={invalidFilterIds !== null}
+                      onChange={(event) => setInvalidFilterIds(event.target.checked ? invalidIds(records) : null)}
+                    />
+                    Sólo con errores
+                  </label>
+                  {invalidRecords.length > 0 && (
+                    <button type="button" className="secondary compact-toggle" onClick={removeInvalidRecords}>
+                      Quitar registros con errores
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {records.length === 0 ? (
+              <div className="empty-state">Aún no hay registros. Pega los datos y pulsa «Interpretar datos».</div>
+            ) : (
+              <div className="record-table-scroll">
+                <table className="record-table">
+                  <thead>
+                    <tr>
+                      <th>Fila</th>
+                      <th>Nombre</th>
+                      <th>Código</th>
+                      <th>Precio</th>
+                      <th>Descuento</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {records
+                      .filter((record) => invalidFilterIds === null || invalidFilterIds.has(record.id))
+                      .map((record) => (
+                        <tr
+                          key={record.id}
+                          className={record.validationState === 'invalid' ? 'record-row invalid' : 'record-row'}
+                        >
+                          <td>{record.row}</td>
+                          <td>
+                            <input
+                              aria-label={`Nombre, fila ${record.row}`}
+                              value={record.name}
+                              onChange={(event) => updateRecord(record.id, 'name', event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              aria-label={`Código, fila ${record.row}`}
+                              value={record.code}
+                              onChange={(event) => updateRecord(record.id, 'code', event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              aria-label={`Precio, fila ${record.row}`}
+                              inputMode="decimal"
+                              value={record.priceText}
+                              onChange={(event) => updateRecord(record.id, 'priceText', event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              aria-label={`Descuento, fila ${record.row}`}
+                              inputMode="decimal"
+                              value={record.discountText}
+                              onChange={(event) => updateRecord(record.id, 'discountText', event.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <span className={`record-status ${record.validationState}`}>
+                              {record.validationState === 'valid' ? 'OK' : 'Revisar'}
+                            </span>
+                            {record.errors.length > 0 && <small>{record.errors.join(' · ')}</small>}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      </main>
+
+      <section className="panel actions-panel">
+        <div className="panel-header">
+          <div>
+            <h2>3. Configura e imprime</h2>
+            <p>Elige la etiqueta y el papel. La vista previa muestra exactamente lo que se imprimirá.</p>
+          </div>
+          <div className="action-buttons">
+            <button type="button" onClick={handlePrint} disabled={!canPrint}>
+              {printing ? 'Preparando...' : `Imprimir ${previewLabels.length} etiqueta(s)`}
+            </button>
+          </div>
+        </div>
 
           <div className="config-split">
             <div className="config-card">
@@ -419,10 +493,10 @@ function App() {
               <div className="controls">
                 <label>
                   Plantilla
-                  <select value={template} onChange={(event) => setTemplate(event.target.value)}>
+                  <select value={template} onChange={(event) => setTemplate(event.target.value as TemplateId)}>
                     <option value="standard">Estándar · {TEMPLATE_SIZES.standard.label}</option>
                     <option value="compact">Compacta · {TEMPLATE_SIZES.compact.label}</option>
-                    <option value={CUSTOM_TEMPLATE_ID}>Personalizada · medida exacta</option>
+                    <option value="custom">Personalizada · medida exacta</option>
                   </select>
                 </label>
 
@@ -432,8 +506,8 @@ function App() {
                       Ancho de la etiqueta (mm)
                       <input
                         type="number"
-                        min="15"
-                        max="200"
+                        min={CUSTOM_LABEL_LIMITS.widthMm.min}
+                        max={CUSTOM_LABEL_LIMITS.widthMm.max}
                         step="0.5"
                         value={customLabelWidthMm}
                         onChange={(event) => setCustomLabelWidthMm(Number(event.target.value))}
@@ -443,8 +517,8 @@ function App() {
                       Alto de la etiqueta (mm)
                       <input
                         type="number"
-                        min="10"
-                        max="300"
+                        min={CUSTOM_LABEL_LIMITS.heightMm.min}
+                        max={CUSTOM_LABEL_LIMITS.heightMm.max}
                         step="0.5"
                         value={customLabelHeightMm}
                         onChange={(event) => setCustomLabelHeightMm(Number(event.target.value))}
@@ -455,7 +529,7 @@ function App() {
                 )}
                 <label>
                   Tipo de código
-                  <select value={codeType} onChange={(event) => setCodeType(event.target.value)}>
+                  <select value={codeType} onChange={(event) => setCodeType(event.target.value as CodeType)}>
                     <option value="barcode">Código de barras</option>
                     <option value="qr">Código QR</option>
                   </select>
@@ -465,6 +539,8 @@ function App() {
                   <input
                     type="number"
                     min="1"
+                    max={MAX_COPIES}
+                    step="1"
                     value={copies}
                     onChange={(event) => setCopies(Number(event.target.value))}
                   />
@@ -669,9 +745,9 @@ function App() {
                 {previewLayout.labelScale !== 1 ? ` (${Math.round(previewLayout.labelScale * 100)}% de la plantilla)` : ''}
               </p>
 
-              {previewLayout.warnings.length > 0 && (
+              {layoutWarnings.length > 0 && (
                 <div className="fit-notice">
-                  {previewLayout.warnings.map((warning) => (
+                  {layoutWarnings.map((warning) => (
                     <span key={warning}>{warning}</span>
                   ))}
                 </div>
@@ -679,76 +755,16 @@ function App() {
             </div>
           </div>
 
-          <div className={`record-table-wrapper ${isRecordsExpanded ? 'expanded' : 'compact'}`}>
-            <div className="record-table-toolbar">
-              <span>
-                {records.length} registros · {validRecords.length} OK
-              </span>
-              <button type="button" className="secondary compact-toggle" onClick={() => setIsRecordsExpanded((expanded) => !expanded)}>
-                {isRecordsExpanded ? 'Compactar' : 'Ampliar'}
-              </button>
+          {records.length > 0 && blockingReasons.length > 0 && (
+            <div className="error-box" role="alert">
+              <h3>Antes de imprimir</h3>
+              <ul>
+                {blockingReasons.map((reason, index) => (
+                  <li key={index}>{reason}</li>
+                ))}
+              </ul>
             </div>
-
-            {records.length === 0 ? (
-              <div className="empty-state">Aún no hay registros para revisar.</div>
-            ) : isRecordsExpanded ? (
-              <table className="record-table">
-                <thead>
-                  <tr>
-                    <th>Nombre</th>
-                    <th>Código</th>
-                    <th>Precio</th>
-                    <th>Descuento</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((record, index) => (
-                    <tr key={record.id} className={record.validationState === 'invalid' ? 'record-row invalid' : 'record-row'}>
-                      <td>
-                        <input value={record.name} onChange={(event) => updateRecord(index, 'name', event.target.value)} />
-                      </td>
-                      <td>
-                        <input value={record.code} onChange={(event) => updateRecord(index, 'code', event.target.value)} />
-                      </td>
-                      <td>
-                        <input type="number" value={record.price} onChange={(event) => updateRecord(index, 'price', event.target.value)} />
-                      </td>
-                      <td>
-                        <input type="number" value={record.discountPrice ?? ''} onChange={(event) => updateRecord(index, 'discountPrice', event.target.value)} />
-                      </td>
-                      <td>
-                        <span className={`record-status ${record.validationState === 'invalid' ? 'invalid' : 'valid'}`}>
-                          {record.validationState === 'valid' ? 'OK' : 'Revisar'}
-                        </span>
-                        {record.errors.length > 0 && <small>{record.errors.join(' · ')}</small>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : null}
-          </div>
-        </section>
-      </main>
-
-      <section className="panel actions-panel">
-        <div className="panel-header">
-          <div>
-            <h2>3. Genera la vista previa</h2>
-            <p>Revisa y luego prepara la impresión.</p>
-          </div>
-          <div className="action-buttons">
-            <button onClick={handlePreview} disabled={loading || !inputText.trim()}>
-              {loading ? 'Generando...' : 'Generar vista previa'}
-            </button>
-            <button onClick={handlePrint} disabled={loading || previewLabels.length === 0} className="secondary">
-              Preparar impresión
-            </button>
-          </div>
-        </div>
-
-        {printStatus && <div className="success-box">{printStatus}</div>}
+          )}
 
         <p className="layout-summary">
           Papel {previewLayout.paperWidthMm} × {previewLayout.paperHeightMm} mm · {previewLayout.columns} columna(s) ·{' '}
@@ -786,10 +802,10 @@ function App() {
                       </div>
                       <p className="label-price-row">
                         <span className={label.discountPrice !== null ? 'label-price-strike' : 'label-price-current'}>
-                          {label.price.toLocaleString('es-CO')}
+                          {priceFormatter.format(label.price)}
                         </span>
                         {label.discountPrice !== null ? (
-                          <span className="label-discount-current">{label.discountPrice.toLocaleString('es-CO')}</span>
+                          <span className="label-discount-current">{priceFormatter.format(label.discountPrice)}</span>
                         ) : null}
                       </p>
                     </article>
@@ -818,7 +834,7 @@ function App() {
             onClick={(event) => event.stopPropagation()}
           >
             <h2 id="success-modal-title">🎉 ¡Tus etiquetas están listas!</h2>
-            <p className="success-modal-main">✅ El PDF se descargó correctamente.</p>
+            <p className="success-modal-main">✅ Se abrió la ventana de impresión. Revisa el tamaño del papel antes de confirmar.</p>
             <p>
               Esperamos que esta herramienta te haya ahorrado tiempo. <b>Negocio al Clic</b> desarrolla herramientas
               gratuitas para emprendedores y empresarios.

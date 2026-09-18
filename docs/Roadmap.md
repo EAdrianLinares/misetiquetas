@@ -76,7 +76,7 @@ Mayor personalización.
 - Tamaños.
 - Logo de empresa.
 - Campos personalizados.
-- Ajuste de márgenes.
+- ~~Ajuste de márgenes.~~ (ya disponible en el perfil de papel Personalizado)
 
 ---
 

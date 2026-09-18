@@ -25,6 +25,8 @@ El usuario ya posee información en hojas de cálculo o texto. El sistema debe c
 
 ## Reglas de negocio
 
+Las reglas exactas (separadores, cabeceras, formato de números) están en [SPEC-FUNC-006](spec-input-format.md).
+
 - Debe aceptarse texto por filas separado por comas, tabulaciones o espacios.
 - Cada registro interpretado debe mantener el orden nombre, código, precio y descuento opcional.
 - Si falta información crítica, debe marcarse como inválido o con error.

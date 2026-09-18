@@ -1,32 +1,33 @@
-# React + TypeScript + Vite
+# Mis Etiquetas — frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Convierte datos pegados desde Excel, Google Sheets o CSV en etiquetas de precio con código de barras o QR, listas para imprimir en rollo térmico (58/80/100 mm) o en hoja (A4/Carta).
 
-Currently, two official plugins are available:
+Es un sitio estático: toda la lógica corre en el navegador ([ADR-002](../docs/adr/adr-002-logica-en-frontend.md)).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Comandos
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
+npm run dev       # desarrollo en http://localhost:5173
+npm test          # tests (Vitest)
+npm run lint      # oxlint
+npm run build     # comprobación de tipos + build en dist/
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Estructura
+
+```text
+src/
+  domain/       reglas de negocio: interpretación, validación, generación de etiquetas
+  utils/        layout de impresión, métricas de etiqueta, códigos, documento de impresión
+  components/   componentes de React
+  App.tsx       flujo de 3 pasos: pegar, revisar, configurar e imprimir
+```
+
+## Documentación
+
+- Arquitectura: [docs/Architecture.md](../docs/Architecture.md)
+- Formato de entrada: [docs/specs/functional/spec-input-format.md](../docs/specs/functional/spec-input-format.md)
+- Motor de impresión: [docs/specs/print-engine/requirements.md](../docs/specs/print-engine/requirements.md)
+- Convenciones: [docs/Coding-Standards.md](../docs/Coding-Standards.md)
+- Pruebas y checklist físico: [docs/testing/README.md](../docs/testing/README.md)

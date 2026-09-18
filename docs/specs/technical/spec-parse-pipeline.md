@@ -2,57 +2,49 @@
 
 ## Objetivo
 
-Definir la arquitectura técnica del flujo de ingreso y interpretación de datos.
-
-## Alcance
-
-Este spec cubre la lógica de parsing de texto/CSV, transformación a registros interpretados y validación básica.
+Definir cómo se implementa el ingreso e interpretación de datos. Las reglas funcionales están en [SPEC-FUNC-006](../functional/spec-input-format.md).
 
 ## Componentes
 
-- Frontend: pantalla de ingreso de datos.
-- Backend: servicio de interpretación.
-- Modelo de estado: entrada, registros, errores, plantilla, configuración de impresión.
+| Módulo | Responsabilidad |
+|---|---|
+| `domain/parseInput.ts` | Filas, separador, comillas CSV, cabecera, lectura de campos |
+| `domain/amount.ts` | Importes en formato es-CO |
+| `domain/records.ts` | `buildRecord` (validación única) y `updateRecordField` (edición) |
+| `App.tsx` | Textarea, botón «Interpretar datos», tabla de revisión |
 
 ## Flujo técnico
 
-1. El frontend envía el contenido pegado al backend.
-2. El backend analiza el contenido y detecta si es texto tabulado, CSV o similar.
-3. El backend transforma la entrada en una lista de registros interpretados.
-4. El backend devuelve:
-   - registros
-   - errores
-   - advertencias
-   - estado de validación
-5. El frontend muestra estos resultados al usuario.
+1. El usuario pulsa «Interpretar datos».
+2. `parseInput(texto)` devuelve `{ records, errors, separator, hasHeader }`. Es síncrono y no hace llamadas de red.
+3. `App` guarda los registros y el texto que los produjo.
+4. Cada edición en la tabla llama a `updateRecordField`, que revalida el registro con las mismas reglas.
+5. Si el textarea cambia después de interpretar, se muestra un aviso y se bloquea la impresión hasta volver a interpretar.
 
 ## Reglas técnicas
 
-- La interpretación debe ser determinista para el mismo input.
-- Debe manejarse errores de parsing con mensajes claros.
-- El backend debe devolver los campos en un formato consistente.
-- El frontend debe conservar los cambios del usuario en memoria durante la sesión.
+- La interpretación es determinista: la misma entrada produce la misma salida.
+- `ParsedRecord` guarda el texto original de los importes (`priceText`, `discountText`) para que la tabla muestre lo que el usuario escribió, y los valores numéricos interpretados (`price`, `discountPrice`).
+- Nombre y código se guardan sin recortar (para editar con espacios); se recortan al generar las etiquetas.
+- El id de un registro es `record-<fila>`, estable mientras no se vuelva a interpretar.
 
 ## Formato de datos
 
-```json
-{
-  "records": [
-    {
-      "id": "uuid",
-      "name": "Producto A",
-      "code": "001",
-      "price": 1200,
-      "discountPrice": null,
-      "validationState": "valid"
-    }
-  ],
-  "errors": []
+```ts
+interface ParsedRecord {
+  id: string;            // "record-3"
+  row: number;           // línea de la entrada original
+  name: string;
+  code: string;
+  priceText: string;     // "1.500"
+  discountText: string;
+  price: number | null;  // 1500; null si falta o es inválido
+  discountPrice: number | null;
+  validationState: 'valid' | 'invalid';
+  errors: string[];
 }
 ```
 
 ## Criterios de aceptación
 
-- El flujo funciona con texto tabulado y CSV básico.
-- El sistema devuelve un resultado estructurado y consistente.
-- El frontend puede mostrar los resultados y permitir edición.
+Cubiertos por `domain/parseInput.test.ts` y `domain/amount.test.ts`.

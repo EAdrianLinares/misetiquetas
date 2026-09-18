@@ -22,12 +22,13 @@ Puede provenir de Excel, Google Sheets, CSV u otro texto tabulado o separado por
 
 ### Atributos
 
-| Campo       | Tipo           | Obligatorio | Descripción |
-| ----------- | -------------- | ----------- | ----------- |
-| id          | UUID           | Sí          | Identificador interno de la fuente de datos. |
-| contenido   | string         | Sí          | Texto recibido desde la fuente externa. |
-| formato     | string         | Sí          | Tipo de entrada reconocida por el sistema. |
-| fecha       | DateTime       | Sí          | Momento en que se registró la fuente. |
+No se persiste: existe sólo durante la sesión.
+
+| Campo        | Tipo                           | Obligatorio | Descripción |
+| ------------ | ------------------------------ | ----------- | ----------- |
+| contenido    | string                         | Sí          | Texto recibido desde la fuente externa. |
+| separador    | tabulación \| ; \| , \| espacios | Sí          | Detectado según [SPEC-FUNC-006](specs/functional/spec-input-format.md). |
+| tieneCabecera | boolean                       | Sí          | Si la primera fila nombra las columnas. |
 
 ---
 
@@ -39,38 +40,45 @@ Representa una fila o registro extraído de la fuente de datos y ya convertido e
 
 | Campo             | Tipo           | Obligatorio | Descripción |
 | ----------------- | -------------- | ----------- | ----------- |
-| id                | UUID           | Sí          | Identificador interno del registro. |
+| id                | string         | Sí          | `record-<fila>`; estable mientras no se vuelva a interpretar. |
+| fila              | number         | Sí          | Línea de la fuente de la que proviene; se usa en los mensajes de error. |
 | nombre            | string         | Sí          | Nombre que aparecerá en la etiqueta. |
 | codigo            | string         | Sí          | Código asociado al registro. |
 | precio            | decimal        | Sí          | Precio normal del registro. |
-| precioDescuento   | decimal | null | No          | Precio promocional del registro. |
-| estadoValidacion  | string         | Sí          | Estado de validación del registro. |
-| orden             | number         | Sí          | Posición del registro dentro de la fuente. |
+| precioDescuento   | decimal \| null | No         | Precio promocional del registro. |
+| estadoValidacion  | valido \| invalido | Sí      | Resultado de aplicar las reglas RN-001 a RN-005. |
+| errores           | string[]       | Sí          | Motivos por los que el registro es inválido. |
 
 ---
 
 ## PlantillaEtiqueta
 
-Representa el formato físico utilizado para imprimir las etiquetas.
+Define **sólo el tamaño** de cada etiqueta. La distribución sobre el papel la define el PerfilPapel.
 
-Define la distribución y dimensiones de las etiquetas dentro de una hoja o papel.
+| Plantilla     | Ancho × alto |
+| ------------- | ------------ |
+| Estándar      | 80 × 50 mm   |
+| Compacta      | 50 × 30 mm   |
+| Personalizada | Ancho 15–200 mm, alto 10–300 mm (p. ej. la medida del troquel) |
 
-### Atributos
+---
 
-| Campo                | Tipo   | Descripción                         |
-| -------------------- | ------ | ----------------------------------- |
-| id                   | UUID   | Identificador de la plantilla.      |
-| nombre               | string | Nombre de la plantilla.             |
-| ancho                | number | Ancho de cada etiqueta.             |
-| alto                 | number | Alto de cada etiqueta.              |
-| filas                | number | Número de filas por hoja.           |
-| columnas             | number | Número de columnas por hoja.        |
-| margenSuperior       | number | Margen superior.                    |
-| margenInferior       | number | Margen inferior.                    |
-| margenIzquierdo      | number | Margen izquierdo.                   |
-| margenDerecho        | number | Margen derecho.                     |
-| separacionHorizontal | number | Espacio horizontal entre etiquetas. |
-| separacionVertical   | number | Espacio vertical entre etiquetas.   |
+## PerfilPapel
+
+Define dónde se imprime: tipo de papel y distribución. Hay perfiles predefinidos y uno Personalizado ([print-engine](specs/print-engine/requirements.md)).
+
+| Campo                | Descripción |
+| -------------------- | ----------- |
+| tipoPapel            | A4, Carta, continuo 58/80/100 mm. |
+| orientacion          | Vertical u horizontal (sólo en hoja). |
+| columnas             | 1–4. |
+| margenes             | Superior, inferior, izquierdo y derecho, en mm. |
+| separaciones         | Horizontal y vertical entre etiquetas, en mm. |
+| modoAjuste           | Cómo se adapta la etiqueta al papel: contain, fill o none. |
+| modoPagina           | En continuo: ajustada al contenido, una etiqueta por página o longitud fija. |
+| longitudPagina       | mm; sólo con longitud fija. |
+
+Las filas por página se calculan; no se declaran.
 
 ---
 
@@ -82,13 +90,15 @@ Todas las etiquetas generadas dentro de una misma generación comparten la misma
 
 ### Atributos
 
-| Campo      | Tipo                        |
-| ---------- | --------------------------- |
-| id         | UUID                        |
-| fecha      | DateTime                    |
-| plantilla  | PlantillaEtiqueta           |
-| tipoCodigo | TipoCodigo                  |
-| registros  | List<RegistroInterpretado>  |
+En el MVP no se persiste: es el estado actual de la pantalla.
+
+| Campo       | Tipo                        |
+| ----------- | --------------------------- |
+| plantilla   | PlantillaEtiqueta           |
+| perfilPapel | PerfilPapel                 |
+| tipoCodigo  | TipoCodigo                  |
+| copias      | number                      |
+| registros   | List<RegistroInterpretado>  |
 
 ---
 
@@ -159,7 +169,7 @@ El precio debe ser mayor que cero.
 
 ## RN-005
 
-El precio con descuento es opcional.
+El precio con descuento es opcional. Vacío o 0 significa "sin descuento". Si existe, debe ser mayor que cero y no mayor que el precio normal.
 
 ---
 
@@ -195,7 +205,7 @@ Todas las etiquetas pertenecientes a una misma generación utilizarán la misma 
 
 ## RN-011
 
-La cantidad de copias deberá ser un número entero mayor que cero.
+La cantidad de copias deberá ser un número entero entre 1 y 500. Una impresión admite como máximo 5.000 etiquetas.
 
 ---
 
@@ -207,7 +217,7 @@ El sistema deberá detectar y reportar los errores de formato detectados durante
 
 ## RN-013
 
-El usuario podrá corregir la información interpretada antes de generar las etiquetas.
+El usuario podrá corregir la información interpretada antes de generar las etiquetas. Cada corrección se valida con las mismas reglas que la interpretación.
 
 ---
 
@@ -221,6 +231,8 @@ La plantilla únicamente define la presentación física de las etiquetas y nunc
 
 Toda plantilla deberá tener un nombre único.
 
+*No aplica en el MVP: las plantillas son fijas (sin editor de plantillas).*
+
 ---
 
 ## RN-016
@@ -232,6 +244,32 @@ Las dimensiones de una plantilla deberán ser mayores que cero.
 ## RN-017
 
 Solo las plantillas activas podrán utilizarse para generar nuevas generaciones.
+
+*No aplica en el MVP: todas las plantillas están activas.*
+
+---
+
+## RN-018
+
+No se puede imprimir mientras exista algún registro inválido. El usuario lo corrige o lo quita explícitamente; nunca se omite en silencio.
+
+---
+
+## RN-019
+
+Los precios se interpretan en formato colombiano: el punto separa miles y la coma decimales (`1.500` = mil quinientos). Ante una entrada ambigua o no numérica, el registro se marca como inválido; nunca se adivina.
+
+---
+
+## RN-020
+
+Con el código de barras (CODE128), el código sólo puede contener caracteres ASCII imprimibles. Para códigos con tildes o ñ se debe usar QR.
+
+---
+
+## RN-021
+
+Cuando los datos se separan con espacios, el formato es "nombre código precio" y no se admite descuento. Para incluir descuento se separa con tabulación, punto y coma o coma.
 
 ---
 

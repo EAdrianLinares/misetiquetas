@@ -72,13 +72,13 @@ La aplicación permitirá imprimir todas las etiquetas generadas utilizando la p
 
 ## Infraestructura de despliegue
 
-Para el MVP la aplicación se desplegará con una arquitectura simple:
+Para el MVP la aplicación es un sitio estático ([ADR-002](adr/adr-002-logica-en-frontend.md)):
 
 * Frontend en Vercel.
-* Backend en Render.
+* Sin backend: toda la lógica corre en el navegador.
 * Sin base de datos persistente.
 
-La información necesaria para la sesión se manejará sin persistencia externa, lo que reduce la complejidad del despliegue y acelera la puesta en marcha.
+Los datos del usuario no salen del navegador.
 
 ---
 
@@ -115,7 +115,7 @@ No harán parte de la primera versión:
 * Reportes.
 * Estadísticas.
 * Exportación a Excel.
-* Importación masiva desde Excel o CSV.
+* Subir archivos .xlsx o .csv (pegar su contenido sí está incluido).
 * API pública.
 * Múltiples idiomas.
 
