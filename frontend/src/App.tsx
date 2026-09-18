@@ -29,6 +29,8 @@ const TEMPLATE_SIZES = {
   standard: { widthMm: 80, heightMm: 50, label: '80 × 50 mm' },
   compact: { widthMm: 50, heightMm: 30, label: '50 × 30 mm' },
 } as const;
+const CUSTOM_TEMPLATE_ID = 'custom';
+const DEFAULT_CUSTOM_LABEL = { widthMm: 54, heightMm: 40 };
 const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
 const DEFAULT_PAPER_PROFILE_ID = 'continuous-58-default';
 const DEFAULT_PAGE_LENGTH_MM = 210;
@@ -98,6 +100,8 @@ function App() {
   const [records, setRecords] = useState<ParsedRecord[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [template, setTemplate] = useState('standard');
+  const [customLabelWidthMm, setCustomLabelWidthMm] = useState(DEFAULT_CUSTOM_LABEL.widthMm);
+  const [customLabelHeightMm, setCustomLabelHeightMm] = useState(DEFAULT_CUSTOM_LABEL.heightMm);
   const [codeType, setCodeType] = useState('barcode');
   const [copies, setCopies] = useState(2);
   const [paperProfileId, setPaperProfileId] = useState(DEFAULT_PAPER_PROFILE_ID);
@@ -147,7 +151,10 @@ function App() {
     ],
   );
   // La plantilla define el tamaño pedido; el plan decide con qué tamaño cabe en el papel.
-  const templateSize = TEMPLATE_SIZES[template as keyof typeof TEMPLATE_SIZES] ?? TEMPLATE_SIZES.standard;
+  const isCustomTemplate = template === CUSTOM_TEMPLATE_ID;
+  const templateSize = isCustomTemplate
+    ? { widthMm: customLabelWidthMm, heightMm: customLabelHeightMm }
+    : TEMPLATE_SIZES[template as keyof typeof TEMPLATE_SIZES] ?? TEMPLATE_SIZES.standard;
   const previewLayout = useMemo(
     () =>
       buildLayoutPlan({
@@ -231,6 +238,8 @@ function App() {
           template,
           codeType,
           copies,
+          templateWidthMm: customLabelWidthMm,
+          templateHeightMm: customLabelHeightMm,
         }),
       });
       const previewData = await readJsonResponse<{ labels: PreviewLabel[] }>(previewResponse);
@@ -413,8 +422,37 @@ function App() {
                   <select value={template} onChange={(event) => setTemplate(event.target.value)}>
                     <option value="standard">Estándar · {TEMPLATE_SIZES.standard.label}</option>
                     <option value="compact">Compacta · {TEMPLATE_SIZES.compact.label}</option>
+                    <option value={CUSTOM_TEMPLATE_ID}>Personalizada · medida exacta</option>
                   </select>
                 </label>
+
+                {isCustomTemplate && (
+                  <>
+                    <label>
+                      Ancho de la etiqueta (mm)
+                      <input
+                        type="number"
+                        min="15"
+                        max="200"
+                        step="0.5"
+                        value={customLabelWidthMm}
+                        onChange={(event) => setCustomLabelWidthMm(Number(event.target.value))}
+                      />
+                    </label>
+                    <label>
+                      Alto de la etiqueta (mm)
+                      <input
+                        type="number"
+                        min="10"
+                        max="300"
+                        step="0.5"
+                        value={customLabelHeightMm}
+                        onChange={(event) => setCustomLabelHeightMm(Number(event.target.value))}
+                      />
+                      <small>Con papel troquelado, usa la medida exacta del troquel.</small>
+                    </label>
+                  </>
+                )}
                 <label>
                   Tipo de código
                   <select value={codeType} onChange={(event) => setCodeType(event.target.value)}>

@@ -23,6 +23,8 @@ export class AppController {
       template: string;
       codeType: string;
       copies: number;
+      templateWidthMm?: number;
+      templateHeightMm?: number;
     },
   ) {
     return this.appService.buildPreview(body);

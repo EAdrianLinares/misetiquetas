@@ -84,6 +84,12 @@ const TEMPLATE_SIZES: Record<string, TemplateSize> = {
   compact: { widthMm: 50, heightMm: 30 },
 };
 
+/** Límites de una etiqueta declarada a mano (por ejemplo, el troquel del rollo). */
+const CUSTOM_LABEL_LIMITS = {
+  widthMm: { min: 15, max: 200, fallback: 50 },
+  heightMm: { min: 10, max: 300, fallback: 30 },
+};
+
 @Injectable()
 export class AppService {
   parseContent(content: string) {
@@ -160,11 +166,13 @@ export class AppService {
     template: string;
     codeType: string;
     copies: number;
+    templateWidthMm?: number;
+    templateHeightMm?: number;
   }) {
     const labels: PreviewLabel[] = [];
     const copies = Number(body.copies ?? 1) || 1;
     const template = body.template || 'standard';
-    const templateSize = TEMPLATE_SIZES[template] ?? TEMPLATE_SIZES.standard;
+    const templateSize = this.resolveTemplateSize(template, body);
 
     body.records.forEach((record) => {
       for (let index = 0; index < copies; index += 1) {
@@ -231,6 +239,37 @@ export class AppService {
         generatedAt: new Date().toISOString(),
       } satisfies PrintDocument,
     };
+  }
+
+  /**
+   * La plantilla `custom` permite declarar el tamaño exacto de la etiqueta, que
+   * es lo que hace falta con papel troquelado: la etiqueta debe medir lo mismo
+   * que el troquel para que la impresión no se vaya corriendo.
+   */
+  private resolveTemplateSize(
+    template: string,
+    size: { templateWidthMm?: number; templateHeightMm?: number },
+  ): TemplateSize {
+    if (template !== 'custom') {
+      return TEMPLATE_SIZES[template] ?? TEMPLATE_SIZES.standard;
+    }
+
+    const limits = CUSTOM_LABEL_LIMITS;
+    return {
+      widthMm: this.clampSize(size.templateWidthMm, limits.widthMm),
+      heightMm: this.clampSize(size.templateHeightMm, limits.heightMm),
+    };
+  }
+
+  private clampSize(
+    value: number | undefined,
+    limits: { min: number; max: number; fallback: number },
+  ) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return limits.fallback;
+    }
+    return Math.min(Math.max(numericValue, limits.min), limits.max);
   }
 
   private tokenize(line: string) {

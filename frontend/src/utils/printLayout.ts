@@ -334,27 +334,36 @@ export function buildLayoutPlan(args: {
   });
   const itemsPerPage = Math.max(1, columns * rowsPerPage);
   const pageCount = Math.max(1, Math.ceil(totalItems / itemsPerPage));
-  // Con longitud fija se respeta la del driver. Si no, se deriva del contenido y
-  // se redondea al milímetro superior, porque los drivers sólo aceptan enteros.
-  const requestedPageHeightMm =
-    fixedPageLengthMm ??
-    Math.ceil(
+  // CSS deduce la orientación comparando las dos medidas de `@page size`: si el
+  // ancho supera al alto, la página es horizontal y el driver rota la etiqueta.
+  const minPortraitHeightMm = Math.ceil(paperSize.widthMm) + 1;
+  let paperHeightMm: number;
+
+  if (fixedPageLengthMm !== null) {
+    // Longitud declarada (formato de hoja o paso del troquel): se respeta al
+    // milímetro. Redondearla o alargarla desplazaría cada etiqueta un poco más
+    // que la anterior y la impresión se iría corriendo sobre el troquelado.
+    paperHeightMm = fixedPageLengthMm;
+    if (isContinuous && paperHeightMm < minPortraitHeightMm) {
+      warnings.push(
+        `La página (${paperHeightMm} mm) es más ancha que alta, así que el navegador la declara horizontal. Configura ese mismo tamaño en el driver de la impresora para que no rote la etiqueta.`,
+      );
+    }
+  } else {
+    // Altura derivada del contenido: aquí sí podemos alargarla para mantenerla
+    // vertical, porque no hay un troquel al que alinearse.
+    const contentHeightMm = Math.ceil(
       settings.marginTopMm +
         settings.marginBottomMm +
         labelHeightMm * rowsPerPage +
         settings.gapVerticalMm * Math.max(0, rowsPerPage - 1),
     );
-  // CSS deduce la orientación comparando las dos medidas de `@page size`: si el
-  // ancho supera al alto, la página es horizontal y el driver rota la etiqueta.
-  // En continuo se alarga la página lo justo para que siga siendo vertical.
-  const minPortraitHeightMm = Math.ceil(paperSize.widthMm) + 1;
-  const paperHeightMm =
-    isContinuous && requestedPageHeightMm < minPortraitHeightMm ? minPortraitHeightMm : requestedPageHeightMm;
-
-  if (paperHeightMm !== requestedPageHeightMm) {
-    warnings.push(
-      `La página se alargó de ${requestedPageHeightMm} a ${paperHeightMm} mm para que no salga girada: una página más ancha que alta se imprime en horizontal.`,
-    );
+    paperHeightMm = Math.max(contentHeightMm, minPortraitHeightMm);
+    if (paperHeightMm !== contentHeightMm) {
+      warnings.push(
+        `La página se alargó de ${contentHeightMm} a ${paperHeightMm} mm para que no salga girada. Si usas papel troquelado, elige «Fija» e indica el paso del troquel.`,
+      );
+    }
   }
 
   if (isContinuous && printableHeightMm !== null && labelHeightMm > printableHeightMm) {

@@ -274,26 +274,32 @@ export function buildLayoutPlan(args: {
   // Ver `frontend/src/utils/printLayout.ts`: con longitud fija se respeta la del
   // driver; si no, se deriva del contenido y se redondea hacia arriba porque los
   // drivers sólo aceptan tamaños enteros.
-  const requestedPageHeightMm =
-    fixedPageLengthMm ??
-    Math.ceil(
+  // Ver `frontend/src/utils/printLayout.ts`: si el ancho supera al alto, CSS
+  // considera la página horizontal y el driver rota la etiqueta. Una longitud
+  // declarada se respeta al milímetro para no desplazar el troquelado.
+  const minPortraitHeightMm = Math.ceil(paperSize.widthMm) + 1;
+  let paperHeightMm: number;
+
+  if (fixedPageLengthMm !== null) {
+    paperHeightMm = fixedPageLengthMm;
+    if (isContinuous && paperHeightMm < minPortraitHeightMm) {
+      warnings.push(
+        `La página (${paperHeightMm} mm) es más ancha que alta, así que el navegador la declara horizontal. Configura ese mismo tamaño en el driver de la impresora para que no rote la etiqueta.`,
+      );
+    }
+  } else {
+    const contentHeightMm = Math.ceil(
       settings.marginTopMm +
         settings.marginBottomMm +
         labelHeightMm * rowsPerPage +
         settings.gapVerticalMm * Math.max(0, rowsPerPage - 1),
     );
-  // Ver `frontend/src/utils/printLayout.ts`: si el ancho supera al alto, CSS
-  // considera la página horizontal y el driver rota la etiqueta.
-  const minPortraitHeightMm = Math.ceil(paperSize.widthMm) + 1;
-  const paperHeightMm =
-    isContinuous && requestedPageHeightMm < minPortraitHeightMm
-      ? minPortraitHeightMm
-      : requestedPageHeightMm;
-
-  if (paperHeightMm !== requestedPageHeightMm) {
-    warnings.push(
-      `La página se alargó de ${requestedPageHeightMm} a ${paperHeightMm} mm para que no salga girada: una página más ancha que alta se imprime en horizontal.`,
-    );
+    paperHeightMm = Math.max(contentHeightMm, minPortraitHeightMm);
+    if (paperHeightMm !== contentHeightMm) {
+      warnings.push(
+        `La página se alargó de ${contentHeightMm} a ${paperHeightMm} mm para que no salga girada. Si usas papel troquelado, elige «Fija» e indica el paso del troquel.`,
+      );
+    }
   }
 
   if (isContinuous && printableHeightMm !== null && labelHeightMm > printableHeightMm) {
